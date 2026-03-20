@@ -23,63 +23,80 @@
 
 /**********************************************************************************************************
 ** Descriptions :  modbus寄存器地址定义
+**
+**  每路电机占用 10 个连续寄存器（基址 = (电机序号-1)*10）：
+**  偏移 0: AM  - 报警信号（只读）
+**  偏移 1: EN  - 使能控制（读写）
+**  偏移 2: DR  - 方向控制（读写，写入触发S曲线换向）
+**  偏移 3: PU  - 目标频率 Hz（读写，写入触发S曲线重新规划）
+**  偏移 4: ACC - 最大加速度 Hz/s（读写，写入触发S曲线重新规划）
+**  偏移 5: JRK - Jerk Hz/s²（读写，S曲线加加速度，用户可自定义）
+**  偏移 6: SP  - 实时速度（读：当前Hz；写：直接跳变或急停，0=急停）
+**  偏移 7~9: 预留
 **********************************************************************************************************/
-#define SMD_1_AM_ADDR              0        // 报警信号
+#define SMD_1_AM_ADDR              0        // 报警信号（只读）
 #define SMD_1_EN_ADDR              1        // 使能控制
 #define SMD_1_DR_ADDR              2        // 方向控制
-#define SMD_1_PU_ADDR              3        // 频率控制
+#define SMD_1_PU_ADDR              3        // 目标频率
 #define SMD_1_ACC_ADDR             4        // 加速度控制
-#define SMD_1_SP_ADDR              5        // 实时速度控制
+#define SMD_1_JRK_ADDR             5        // Jerk控制（S曲线加加速度）
+#define SMD_1_SP_ADDR              6        // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_2_AM_ADDR              10        // 报警信号
-#define SMD_2_EN_ADDR              11        // 使能控制
-#define SMD_2_DR_ADDR              12        // 方向控制
-#define SMD_2_PU_ADDR              13        // 频率控制
-#define SMD_2_ACC_ADDR             14        // 加速度控制
-#define SMD_2_SP_ADDR              15        // 实时速度控制
+#define SMD_2_AM_ADDR              10       // 报警信号（只读）
+#define SMD_2_EN_ADDR              11       // 使能控制
+#define SMD_2_DR_ADDR              12       // 方向控制
+#define SMD_2_PU_ADDR              13       // 目标频率
+#define SMD_2_ACC_ADDR             14       // 加速度控制
+#define SMD_2_JRK_ADDR             15       // Jerk控制
+#define SMD_2_SP_ADDR              16       // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_3_AM_ADDR              20        // 报警信号
-#define SMD_3_EN_ADDR              21        // 使能控制
-#define SMD_3_DR_ADDR              22        // 方向控制
-#define SMD_3_PU_ADDR              23        // 频率控制
-#define SMD_3_ACC_ADDR             24        // 加速度控制
-#define SMD_3_SP_ADDR              25        // 实时速度控制
+#define SMD_3_AM_ADDR              20       // 报警信号（只读）
+#define SMD_3_EN_ADDR              21       // 使能控制
+#define SMD_3_DR_ADDR              22       // 方向控制
+#define SMD_3_PU_ADDR              23       // 目标频率
+#define SMD_3_ACC_ADDR             24       // 加速度控制
+#define SMD_3_JRK_ADDR             25       // Jerk控制
+#define SMD_3_SP_ADDR              26       // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_4_AM_ADDR              30        // 报警信号
-#define SMD_4_EN_ADDR              31        // 使能控制
-#define SMD_4_DR_ADDR              32        // 方向控制
-#define SMD_4_PU_ADDR              33        // 频率控制
-#define SMD_4_ACC_ADDR             34        // 加速度控制
-#define SMD_4_SP_ADDR              35        // 实时速度控制
+#define SMD_4_AM_ADDR              30       // 报警信号（只读）
+#define SMD_4_EN_ADDR              31       // 使能控制
+#define SMD_4_DR_ADDR              32       // 方向控制
+#define SMD_4_PU_ADDR              33       // 目标频率
+#define SMD_4_ACC_ADDR             34       // 加速度控制
+#define SMD_4_JRK_ADDR             35       // Jerk控制
+#define SMD_4_SP_ADDR              36       // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_5_AM_ADDR              40        // 报警信号
-#define SMD_5_EN_ADDR              41        // 使能控制
-#define SMD_5_DR_ADDR              42        // 方向控制
-#define SMD_5_PU_ADDR              43        // 频率控制
-#define SMD_5_ACC_ADDR             44        // 加速度控制
-#define SMD_5_SP_ADDR              45        // 实时速度控制
+#define SMD_5_AM_ADDR              40       // 报警信号（只读）
+#define SMD_5_EN_ADDR              41       // 使能控制
+#define SMD_5_DR_ADDR              42       // 方向控制
+#define SMD_5_PU_ADDR              43       // 目标频率
+#define SMD_5_ACC_ADDR             44       // 加速度控制
+#define SMD_5_JRK_ADDR             45       // Jerk控制
+#define SMD_5_SP_ADDR              46       // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_6_AM_ADDR              50        // 报警信号
-#define SMD_6_EN_ADDR              51        // 使能控制
-#define SMD_6_DR_ADDR              52        // 方向控制
-#define SMD_6_PU_ADDR              53        // 频率控制
-#define SMD_6_ACC_ADDR             54        // 加速度控制
-#define SMD_6_SP_ADDR              55        // 实时速度控制
+#define SMD_6_AM_ADDR              50       // 报警信号（只读）
+#define SMD_6_EN_ADDR              51       // 使能控制
+#define SMD_6_DR_ADDR              52       // 方向控制
+#define SMD_6_PU_ADDR              53       // 目标频率
+#define SMD_6_ACC_ADDR             54       // 加速度控制
+#define SMD_6_JRK_ADDR             55       // Jerk控制
+#define SMD_6_SP_ADDR              56       // 实时速度（写0=急停，写>0=直接跳变）
 
+#define SMD_7_AM_ADDR              60       // 报警信号（只读）
+#define SMD_7_EN_ADDR              61       // 使能控制
+#define SMD_7_DR_ADDR              62       // 方向控制
+#define SMD_7_PU_ADDR              63       // 目标频率
+#define SMD_7_ACC_ADDR             64       // 加速度控制
+#define SMD_7_JRK_ADDR             65       // Jerk控制
+#define SMD_7_SP_ADDR              66       // 实时速度（写0=急停，写>0=直接跳变）
 
-#define SMD_7_AM_ADDR              60        // 报警信号
-#define SMD_7_EN_ADDR              61        // 使能控制
-#define SMD_7_DR_ADDR              62        // 方向控制
-#define SMD_7_PU_ADDR              63        // 频率控制
-#define SMD_7_ACC_ADDR             64        // 加速度控制
-#define SMD_7_SP_ADDR              65        // 实时速度控制
-
-#define SMD_8_AM_ADDR              70        // 报警信号
-#define SMD_8_EN_ADDR              71        // 使能控制
-#define SMD_8_DR_ADDR              72        // 方向控制
-#define SMD_8_PU_ADDR              73        // 频率控制
-#define SMD_8_ACC_ADDR             74        // 加速度控制
-#define SMD_8_SP_ADDR              75        // 实时速度控制
+#define SMD_8_AM_ADDR              70       // 报警信号（只读）
+#define SMD_8_EN_ADDR              71       // 使能控制
+#define SMD_8_DR_ADDR              72       // 方向控制
+#define SMD_8_PU_ADDR              73       // 目标频率
+#define SMD_8_ACC_ADDR             74       // 加速度控制
+#define SMD_8_JRK_ADDR             75       // Jerk控制
+#define SMD_8_SP_ADDR              76       // 实时速度（写0=急停，写>0=直接跳变）
 
 #define IN_1_ADDR                  80        // 输入信号
 #define IN_2_ADDR                  81        // 输入信号

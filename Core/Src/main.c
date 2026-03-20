@@ -111,20 +111,8 @@ int main(void)
     mbs_init(&mbsUSB);
     mbs_init(&mbsESP);
     mbs_init(&mbsSTM);
-	if (SMD_PWM_InitAll() == HAL_OK)
-    {
-        // 4. 设置各通道占空比50%
-        for (int ch = 0; ch < SMD_CH_MAX; ch++)
-        {
-            SMD_PWM_SetDutyPercent((SMD_Channel)ch, 50.0f);
-        }
-        // 5. 启动所有通道PWM输出
-        SMD_PWM_StartAll();
-        for (int ch = 0; ch < SMD_CH_MAX; ch++)
-        {
-            SMD_PWM_SetFreqGradient((SMD_Channel)ch, SMD_PU_DATA[ch], SMD_ACC_DATA[ch]);
-        }
-    }
+
+	SMD_PWM_InitAll();
     /* USER CODE END 2 */
 
     /* Infinite loop */
