@@ -22,7 +22,7 @@
  *        而不是写为 0。直接急停请用 SP=0。
  */
 #define SMD_PWM_FREQ_MIN        1u      // 最低频率 Hz（禁止改为0，见上方说明）
-#define SMD_PWM_FREQ_MAX        4000u   // 最高频率 Hz
+#define SMD_PWM_FREQ_MAX        8000u   // 最高频率 Hz
 #define SMD_COUNTER_FREQ        1000000u // 计数器频率 1MHz
 
 /**
@@ -33,8 +33,8 @@
  *        单位 Hz/s，通过 Modbus SMD_ACC_DATA[] 读写。
  */
 #define SMD_ACC_MAX_MIN         1u      // 最大加速度下限 Hz/s（防止为0导致永远不动）
-#define SMD_ACC_MAX_MAX         2000u  // 最大加速度上限 Hz/s（可根据电机实际调整）
-#define SMD_ACC_MAX_DEFAULT		1000u
+#define SMD_ACC_MAX_MAX         4000u  // 最大加速度上限 Hz/s（可根据电机实际调整）
+#define SMD_ACC_MAX_DEFAULT			1000u
 /**
  * @brief S曲线 Jerk 参数范围
  * @note  Jerk 含义为"加速度的变化率"（Hz/s²），决定S曲线的"柔和程度"。

@@ -253,49 +253,49 @@ static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
             htim2_smd.Instance->PSC = psc;
             htim2_smd.Instance->ARR = arr;
             htim2_smd.Instance->CCR2 = arr / 2;   // 保持50%占空比
-            htim2_smd.Instance->EGR  = TIM_EGR_UG; // 立即更新PSC生效
+            //htim2_smd.Instance->EGR  = TIM_EGR_UG; // 立即更新PSC生效
             break;
         case SMD_CH1:
             htim9_smd.Instance->PSC = psc;
             htim9_smd.Instance->ARR = arr;
             htim9_smd.Instance->CCR1 = arr / 2;
-            htim9_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim9_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH2:
             htim5_smd.Instance->PSC = psc;
             htim5_smd.Instance->ARR = arr;
             htim5_smd.Instance->CCR4 = arr / 2;
-            htim5_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim5_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH3:
             htim8_smd.Instance->PSC = psc;
             htim8_smd.Instance->ARR = arr;
             htim8_smd.Instance->CCR1 = arr / 2;
-            htim8_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim8_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH4:
             htim13_smd.Instance->PSC = psc;
             htim13_smd.Instance->ARR = arr;
             htim13_smd.Instance->CCR1 = arr / 2;
-            htim13_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim13_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH5:
             htim14_smd.Instance->PSC = psc;
             htim14_smd.Instance->ARR = arr;
             htim14_smd.Instance->CCR1 = arr / 2;
-            htim14_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim14_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH6:
             htim1_smd.Instance->PSC = psc;
             htim1_smd.Instance->ARR = arr;
             htim1_smd.Instance->CCR2 = arr / 2;
-            htim1_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim1_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         case SMD_CH7:
             htim3_smd.Instance->PSC = psc;
             htim3_smd.Instance->ARR = arr;
             htim3_smd.Instance->CCR4 = arr / 2;
-            htim3_smd.Instance->EGR  = TIM_EGR_UG;
+            //htim3_smd.Instance->EGR  = TIM_EGR_UG;
             break;
         default: break;
     }
