@@ -87,6 +87,9 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
 {
     uint8_t i = 0;
     
+    if(_val == WRITE_HOLDING_V)
+        return;
+    
     _mbs->regHoldingBuf[_reg] = _val;
     
     if(_mbs == &mbsUSB || _mbs == &mbsESP)
@@ -199,8 +202,24 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                     /* v_c 已在 SMD_PWM_SetFreq 内同步为 target，后续PU渐变以此为起点 */
                 }
             }
+            /* ---写入全部急停寄存器,电机全部停止---
+             *
+             */
+            if(_reg == STOP_ALL_MOTOR_ADDR)
+            {
+                uint16_t s_cmd = _mbs->regHoldingBuf[STOP_ALL_MOTOR_ADDR];
+                if(s_cmd == 1)
+                {
+                    SMD_PWM_Stop((SMD_Channel)i);
+					SMD_PU_DATA[i] 						  = 1u;
+                    smd_freq_gradient[i].v_c              = 0.0f;
+                    smd_freq_gradient[i].v_n              = 0.0f;
+                    smd_freq_gradient[i].a_c              = 0.0f;
+                    smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
+                    smd_freq_gradient[i].is_running       = 0;
+                }
+            }
         }
-        
         /* --- 输出控制 --- */
         for(i = 0; i < 16; i++)
         {
