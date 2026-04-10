@@ -37,12 +37,14 @@ uint16_t SMD_ACC_DATA[8] = {
     SMD_ACC_MAX_DEFAULT, SMD_ACC_MAX_DEFAULT
 };
 /* 3、电机默认加加速度 */
-uint32_t SMD_JERK_DATA[8] = {
+uint16_t SMD_JERK_DATA[8] = {
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT, 
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT, 
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT, 
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT
 };
+uint16_t GripperCurStepsU = 0; 
+static float GripperCurStepsF = 0; 
 
 /**
  * @brief  8路PWM通道的S曲线运动状态
@@ -301,6 +303,24 @@ static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
     }
 
     smd_freq_gradient[ch].current_freq_int = freq_int;
+    if (ch == MOTOR_GripperMove)
+    {
+        GripperCurStepsF += (float)freq_int * SMD_UPDATE_DT_s;
+
+        uint16_t whole = (uint16_t)GripperCurStepsF;
+        if (whole > 0)
+        {
+            GripperCurStepsF -= (float)whole;
+
+            /* 读取方向引脚：1→正转累加，0→反转累减 */
+            if (SMD_DR_READ(ch))
+                GripperCurStepsU += whole;
+            else{
+                if(GripperCurStepsU < whole) GripperCurStepsU = 0;
+                else GripperCurStepsU -= whole;
+            }
+        }
+    }
 }
 
 /* ========================= 内部：S曲线速度更新（移植自ESP32 update_velocity） ========================= */

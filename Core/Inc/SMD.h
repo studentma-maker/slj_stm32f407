@@ -61,6 +61,7 @@ typedef enum
     SMD_CH2,      // PA3 - TIM5_CH4
     SMD_CH3,      // PA5 - TIM8_CH1N
     SMD_CH4,      // PA6 - TIM13_CH1
+    MOTOR_GripperMove = SMD_CH4,
     SMD_CH5,      // PA7 - TIM14_CH1
     SMD_CH6,      // PB0 - TIM1_CH2N
     SMD_CH7,      // PB1 - TIM3_CH4
@@ -109,7 +110,8 @@ extern TIM_HandleTypeDef htim10;
 /* 电机参数数组，供Modbus读写 */
 extern uint16_t SMD_PU_DATA[8];   // 目标频率 Hz
 extern uint16_t SMD_ACC_DATA[8];  // 最大加速度 Hz/s
-extern uint32_t SMD_JERK_DATA[8]; // Jerk Hz/s²，S曲线加加速度，用户可通过Modbus自定义
+extern uint16_t SMD_JERK_DATA[8]; // Jerk Hz/s²，S曲线加加速度，用户可通过Modbus自定义
+extern uint16_t GripperCurStepsU;   // 夹爪当前步数整数部分
 
 /* ========================= 函数声明 ========================= */
 

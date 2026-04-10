@@ -58,6 +58,8 @@ void mbs_hook_updata_holding(mbs *_mbs)
         {
             _mbs->regHoldingBuf[ADC_1_ADDR + i] = mbsSTM.regHoldingBuf[i];
         }
+
+        _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = GripperCurStepsU;
     }
     else if(_mbs == &mbsSTM)
     {
