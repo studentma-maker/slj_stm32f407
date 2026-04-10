@@ -117,7 +117,12 @@ extern uint16_t SMD_PU_DATA[8];   // 目标频率 Hz
 extern uint16_t SMD_ACC_DATA[8];  // 最大加速度 Hz/s
 extern uint16_t SMD_JERK_DATA[8]; // Jerk Hz/s²，S曲线加加速度，用户可通过Modbus自定义
 extern uint16_t GripperCurStepsU;   // 夹爪当前步数整数部分
-
+typedef struct
+{
+    uint8_t  is_running;
+    uint16_t targetSteps;
+} GripperStepsCtl_t;
+extern GripperStepsCtl_t g_gripperStepsCtl;   // 夹爪当前步数整数部分
 /* ========================= 函数声明 ========================= */
 
 /* 初始化 */

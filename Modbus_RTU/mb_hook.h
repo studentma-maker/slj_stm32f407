@@ -161,6 +161,7 @@
 #define ADC_6_ADDR                 131       // ADC值
 #define GRIPPER_CUR_STEPS          132       // 夹爪当前步数
 
+#define GRIPPER_TARGET_STEPS       198       // 夹爪目标步数
 #define STOP_ALL_MOTOR_ADDR        (REG_HOLDING_NREGS - 1) // stop all motor
 
 /**********************************************************************************************************

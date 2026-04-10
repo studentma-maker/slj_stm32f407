@@ -61,7 +61,13 @@ typedef enum  {
     MOTOR_GripperMoveDR_G,      //夹爪夹取假发:grip
     MOTOR_GripperMoveDR_t_MAX
 }MOTOR_GripperMoveDR_t;
+#define GRIPPER_MOVE_MAXPU     2000 
 static GrippertoOrigin_P s_sysToOrigin = defaultset;
+GripperStepsCtl_t g_gripperStepsCtl = {
+    .is_running = 0,
+    .targetSteps = 0,
+};
+
 /**
  * @brief  8路PWM通道的S曲线运动状态
  * @note   v_c/v_n 单位 Hz（浮点），a_c 单位 Hz/s，jerk 字段为运行时动态值
@@ -588,6 +594,141 @@ HAL_StatusTypeDef SMD_TIM10_Init(void)
 
     return HAL_OK;
 }
+/**
+ * @brief  计算从当前运动状态减速到目标速度所需的脉冲步数（S曲线模型）
+ *
+ * @param  v_current  当前速度（Hz，浮点），即 smd_freq_gradient[ch].v_c
+ * @param  a_current  当前加速度（Hz/s，浮点），即 smd_freq_gradient[ch].a_c
+ *                    ★ 相比旧版新增此参数，修复了全速段 a_c != 0 时预警距离偏短的问题
+ * @param  v_target   目标速度（Hz，浮点），减速终点（如 pu_min）
+ * @param  acc_max    最大加速度上限（Hz/s）
+ * @param  jerk       加加速度（Hz/s²）
+ * @return int32_t    预估从当前状态减速到 v_target 所需步数（>= 0）
+ *
+ * @note   计算分两个阶段：
+ *         阶段0：以 jerk 将当前 a_c 降至 0（"收尾段"），期间速度继续下降
+ *         阶段1：从阶段0结束时的速度，以标准S曲线继续减速至 v_target
+ *         两段步数之和即为总预警距离。
+ */
+int32_t SMD_CalcAccNeedSteps(float v_current, float a_current,
+                              float v_target,  float acc_max, float jerk)
+{
+    /* 已在目标速度或以下，无需减速 */
+    if (v_current <= v_target) return 0;
+    /* 防止除零 */
+    if (jerk <= 0.0f) return 0;
+
+    double vc = (double)v_current;
+    double ac = (double)a_current;   /* 当前加速度，>= 0 */
+    double vt = (double)v_target;
+    double j  = (double)jerk;
+    double am = (double)acc_max;
+
+    double total_steps = 0.0;
+
+    /* ---------------------------------------------------------------
+     * 阶段0：将当前 a_c 以 jerk 速率降至 0
+     *   t0      = a_c / j
+     *   期间速度变化量（精确积分）：
+     *     delta_v0 = a_c*t0 - 0.5*j*t0^2 = 0.5*a_c^2/j
+     *   期间步数（对速度积分）：
+     *     s0 = vc*t0 - 0.5*ac*t0^2 + (j/6)*t0^3
+     *   阶段0结束后速度：
+     *     v1 = vc - delta_v0 = vc - 0.5*ac^2/j
+     * --------------------------------------------------------------- */
+    double t0      = ac / j;
+    double s0      = vc * t0 - 0.5 * ac * t0 * t0 + (j / 6.0) * t0 * t0 * t0;
+    double v1      = vc - 0.5 * ac * ac / j;
+    if (v1 < vt) v1 = vt;   /* 阶段0已经减到目标以下，截断 */
+
+    total_steps += s0;
+
+    /* ---------------------------------------------------------------
+     * 阶段1：从 v1（此时 a_c = 0）以标准S曲线减速至 vt
+     *   单侧 jerk 段速度变化量：delta_v_t1 = 0.5*j*t1^2，t1 = am/j
+     * --------------------------------------------------------------- */
+    double v_delta = v1 - vt;
+    if (v_delta <= 0.0) return (int32_t)(total_steps + 0.5);
+
+    double t1         = am / j;
+    double delta_v_t1 = 0.5 * j * t1 * t1;
+    double s1         = 0.0;
+
+    if (v_delta >= 2.0 * delta_v_t1)
+    {
+        /* 场景A：速度差足够大，存在匀减速段（加速度维持在 am） */
+        double v_const = v_delta - 2.0 * delta_v_t1;
+        double t2      = v_const / am;
+        /* 步数 = 梯形面积：(v1 + vt) / 2 * 总时间 */
+        s1 = (v1 + vt) * 0.5 * (2.0 * t1 + t2);
+    }
+    else
+    {
+        /* 场景B：速度差较小，加速度未达 am 即开始减小（纯S曲线） */
+        double t_peak = sqrt(v_delta / j);
+        s1 = (v1 + vt) * 0.5 * (2.0 * t_peak);
+    }
+    total_steps += s1;
+
+    return (int32_t)(total_steps + 0.5);
+}
+static void SMD_GripperStepsCtl(void)
+{
+    if (!g_gripperStepsCtl.is_running) return;
+
+    SMD_Freq_Gradient *m = &smd_freq_gradient[MOTOR_GripperMove];
+
+    int32_t step_remain = (int32_t)g_gripperStepsCtl.targetSteps - (int32_t)GripperCurStepsU;
+
+    if (step_remain == 0)
+    {
+        g_gripperStepsCtl.is_running = 0;
+        return;
+    }
+
+    uint8_t need_dir    = (step_remain > 0) ? 1u : 0u;
+
+    /* 换向处理 */
+    if (!m->dir_change && m->dir_state == SMD_DIR_NORMAL)
+    {
+      if (need_dir != (uint8_t)SMD_DR_READ(MOTOR_GripperMove))
+      {
+          m->is_running = 1;
+          m->dir_change = 1;
+          m->dir_state  = SMD_DIR_NORMAL;
+          return;
+      }
+    }
+    else
+    {
+      m->is_running = 1;
+      return;
+    }
+
+    /* 方向正确，计算目标频率 */
+    m->is_running = 1;
+    int32_t abs_remain = (step_remain >= 0) ? step_remain : -step_remain;
+
+    int32_t pumin_need_s = SMD_CalcAccNeedSteps(
+                  m->v_c, m->a_c,
+                  (float)SMD_PWM_FREQ_MIN,
+                  (float)SMD_ACC_DATA[MOTOR_GripperMove],
+                  (float)SMD_JERK_DATA[MOTOR_GripperMove]);
+
+    uint16_t freq_int = (abs_remain > pumin_need_s) ? GRIPPER_MOVE_MAXPU : SMD_PWM_FREQ_MIN;
+
+    /* ★ 核心修复：只有目标频率发生变化时，才调用 SetFreqGradient */
+    if (freq_int != SMD_PU_DATA[MOTOR_GripperMove])
+    {
+      SMD_PU_DATA[MOTOR_GripperMove] = freq_int;
+      SMD_PWM_SetFreqGradient((SMD_Channel)MOTOR_GripperMove,
+                               freq_int,
+                               SMD_ACC_DATA[MOTOR_GripperMove]);
+
+      if (freq_int == SMD_PWM_FREQ_MIN)
+          g_gripperStepsCtl.is_running = 0;
+    }
+}
 
 /* ========================= TIM10 1ms中断服务函数（S曲线调度） ========================= */
 /**
@@ -614,6 +755,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
 
     num++;
 
+    SMD_GripperStepsCtl();
     for (int ch = 0; ch < SMD_CH_MAX; ch++)
     {
         SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
@@ -652,7 +794,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
                     hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
                     break;
                 case MOTOR_Feed:
-                    hit = ((!IN_READ(8) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    hit = ((!IN_READ(7) && cur_dir) || (!IN_READ(9) && !cur_dir));
                     break;
                 default:
                     break;
@@ -668,6 +810,10 @@ void TIM1_UP_TIM10_IRQHandler(void)
                 m->current_freq_int = 1u;
                 m->dir_change       = 0;
                 m->dir_state        = SMD_DIR_NORMAL;
+                if (ch == MOTOR_GripperMove)
+                {
+                    g_gripperStepsCtl.is_running = 0;
+                }
                 continue;
             }
 
@@ -692,7 +838,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
                     hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
                     break;
                 case MOTOR_Feed:
-                    hit = ((!IN_READ(8) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    hit = ((!IN_READ(7) && cur_dir) || (!IN_READ(9) && !cur_dir));
                     break;
                 default:
                     break;
@@ -709,6 +855,10 @@ void TIM1_UP_TIM10_IRQHandler(void)
                 m->current_freq_int = 1u;
                 /* 注意：dir_change 保留不清除，下周期分支A会处理换向 */
                 m->dir_state        = SMD_DIR_NORMAL;
+                if (ch == MOTOR_GripperMove)
+                {
+                    g_gripperStepsCtl.is_running = 0;
+                }
                 continue;
             }
 
