@@ -57,12 +57,17 @@
 typedef enum
 {
     SMD_CH0 = 0,  // PA1 - TIM2_CH2
+    MOTOR_PaiFa = SMD_CH0 ,//排发电机别名
     SMD_CH1,      // PA2 - TIM9_CH1
+    MOTOR_UpDown = SMD_CH1 ,//升降电机别名
     SMD_CH2,      // PA3 - TIM5_CH4
+    MOTOR_FBack = SMD_CH2 ,//进退电机别名
     SMD_CH3,      // PA5 - TIM8_CH1N
+    MOTOR_Trans = SMD_CH3 ,//送发电机别名
     SMD_CH4,      // PA6 - TIM13_CH1
     MOTOR_GripperMove = SMD_CH4,
     SMD_CH5,      // PA7 - TIM14_CH1
+    MOTOR_Feed = SMD_CH5 ,//上料电机别名
     SMD_CH6,      // PB0 - TIM1_CH2N
     SMD_CH7,      // PB1 - TIM3_CH4
     SMD_CH_MAX

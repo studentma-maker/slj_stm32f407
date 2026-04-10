@@ -45,7 +45,23 @@ uint16_t SMD_JERK_DATA[8] = {
 };
 uint16_t GripperCurStepsU = 0; 
 static float GripperCurStepsF = 0; 
-
+#define GripperToOriginPU   600
+typedef enum
+{
+    defaultset = 0,         //初始化继电器默认状态
+    gripperSetDR,           //设置夹爪电机的方向
+    waitPressUP,            //等待下压和送发气缸升起
+    gripperSettoOriginPU,   //设置夹爪电机脉冲
+    waitToOrigin,           //等待夹爪到达原点
+    toOriginSuccess,        //复位完成
+    GrippertoOrigin_P_MAX
+} GrippertoOrigin_P;
+typedef enum  {
+    MOTOR_GripperMoveDR_F = 0,  //夹爪往排发方向运行:feed
+    MOTOR_GripperMoveDR_G,      //夹爪夹取假发:grip
+    MOTOR_GripperMoveDR_t_MAX
+}MOTOR_GripperMoveDR_t;
+static GrippertoOrigin_P s_sysToOrigin = defaultset;
 /**
  * @brief  8路PWM通道的S曲线运动状态
  * @note   v_c/v_n 单位 Hz（浮点），a_c 单位 Hz/s，jerk 字段为运行时动态值
@@ -604,57 +620,136 @@ void TIM1_UP_TIM10_IRQHandler(void)
 
         if (!m->is_running) continue;
 
-        /* ---- 1. 换向状态机 ---- */
-        if (m->dir_change)
+        /* ================================================================
+         * 分支A：v_c == 0，先换向再检测限位
+         * ================================================================ */
+        if (m->v_c <= 1.0f)
         {
-            if (m->dir_state == SMD_DIR_NORMAL)
+            uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
+            /* A1. 直接切换方向引脚（无需减速） */
+            if (m->dir_change)
             {
-                /* 进入换向：开始减速到0 */
-                m->dir_state = SMD_DIR_DECEL;
+                m->v_c        = 0.0f;
+                m->a_c        = 0.0f;
+                cur_dir       = !cur_dir;
+                SMD_DR(ch, cur_dir);
+                m->dir_change = 0;
+                m->dir_state  = SMD_DIR_NORMAL;
+                /* 不 continue，继续往下做限位检测再进入S曲线 */
             }
 
-            if (m->dir_state == SMD_DIR_DECEL)
+            /* A2. 换向后（或本来就无换向）检测限位 */
+            uint8_t hit     = 0;
+            switch (ch)
             {
-                /* 减速过程中强制目标为0 */
-                float delta_v = m->v_c;  // v_c > 0
+                case MOTOR_UpDown:
+                    hit = (!IN_READ(0) && !cur_dir);
+                    break;
+                case MOTOR_FBack:
+                    hit = ((!IN_READ(1) && !cur_dir) || (!IN_READ(2) && cur_dir));
+                    break;
+                case MOTOR_GripperMove:
+                    hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
+                    break;
+                case MOTOR_Feed:
+                    hit = ((!IN_READ(8) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    break;
+                default:
+                    break;
+            }
+            if (hit)
+            {
+                SMD_PWM_Stop((SMD_Channel)ch);
+                SMD_PU_DATA[ch]     = 1u;
+                m->v_c              = 0.0f;
+                m->a_c              = 0.0f;
+                m->v_n              = (float)SMD_PWM_FREQ_MIN;
+                m->is_running       = 0;
+                m->current_freq_int = 1u;
+                m->dir_change       = 0;
+                m->dir_state        = SMD_DIR_NORMAL;
+                continue;
+            }
 
-                if (delta_v <= 1.0f)
+            /* A3. 无限位触发，进入S曲线加速（直接落入下方正常运动逻辑） */
+        }
+        /* ================================================================
+         * 分支B：v_c != 0，先检测限位再决定换向/S曲线
+         * ================================================================ */
+        else
+        {
+            uint8_t hit     = 0;
+            uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
+            switch (ch)
+            {
+                case MOTOR_UpDown:
+                    hit = (!IN_READ(0) && !cur_dir);
+                    break;
+                case MOTOR_FBack:
+                    hit = ((!IN_READ(1) && !cur_dir) || (!IN_READ(2) && cur_dir));
+                    break;
+                case MOTOR_GripperMove:
+                    hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
+                    break;
+                case MOTOR_Feed:
+                    hit = ((!IN_READ(8) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    break;
+                default:
+                    break;
+            }
+            if (hit)
+            {
+                /* 硬停，v_c=0，下一周期走分支A自动换向 */
+                SMD_PWM_Stop((SMD_Channel)ch);
+                SMD_PU_DATA[ch]     = 1u;
+                m->v_c              = 0.0f;
+                m->a_c              = 0.0f;
+                m->v_n              = (float)SMD_PWM_FREQ_MIN;
+                m->is_running       = 0;
+                m->current_freq_int = 1u;
+                /* 注意：dir_change 保留不清除，下周期分支A会处理换向 */
+                m->dir_state        = SMD_DIR_NORMAL;
+                continue;
+            }
+
+            /* 未触发限位，走换向减速或S曲线 */
+            if (m->dir_change)
+            {
+                if (m->dir_state == SMD_DIR_NORMAL)
+                    m->dir_state = SMD_DIR_DECEL;
+
+                if (m->dir_state == SMD_DIR_DECEL)
                 {
-                    /* 已到0，停止PWM，切换方向引脚 */
-                    m->v_c = 0.0f;
-                    m->a_c = 0.0f;
-                    SMD_PWM_Stop((SMD_Channel)ch);
-
-                    /* 切换方向：翻转DR引脚 */
-                    uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
-                    SMD_DR(ch, !cur_dir);
-
-                    /* HAL_Delay在中断中不可用，给2ms裕量靠多次迭代完成 */
-                    m->dir_state  = SMD_DIR_WAIT;
-                    m->dir_change = 0;
-
-                    SMD_PWM_Start((SMD_Channel)ch);
-                    continue;  // 本ms不再加速
+                    float delta_v = m->v_c;
+                    if (delta_v <= 1.0f)
+                    {
+                        m->v_c = 0.0f;
+                        m->a_c = 0.0f;
+                        SMD_PWM_Stop((SMD_Channel)ch);
+                        uint8_t cur_dir2 = (uint8_t)SMD_DR_READ(ch);
+                        SMD_DR(ch, !cur_dir2);
+                        m->dir_state  = SMD_DIR_WAIT;
+                        m->dir_change = 0;
+                        SMD_PWM_Start((SMD_Channel)ch);
+                        continue;
+                    }
+                    SMD_UpdateVelocity(m, delta_v, (float)SMD_ACC_DATA[ch], (float)SMD_JERK_DATA[ch]);
+                    m->v_c -= m->a_c * SMD_UPDATE_DT_s;
+                    if (m->v_c < 0.0f) m->v_c = 0.0f;
+                    uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
+                    if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
+                    SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
+                    continue;
                 }
 
-                /* 仍在减速，以S曲线减速 */
-                SMD_UpdateVelocity(m, delta_v, (float)SMD_ACC_DATA[ch], (float)SMD_JERK_DATA[ch]);
-                m->v_c -= m->a_c * SMD_UPDATE_DT_s;
-                if (m->v_c < 0.0f) m->v_c = 0.0f;
-
-                uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
-                if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
-                SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
-                continue;
-            }
-
-            if (m->dir_state == SMD_DIR_WAIT)
-            {
-                /* GPIO切换后等1个周期再恢复正常运动 */
-                m->dir_state = SMD_DIR_NORMAL;
-                continue;
+                if (m->dir_state == SMD_DIR_WAIT)
+                {
+                    m->dir_state = SMD_DIR_NORMAL;
+                    continue;
+                }
             }
         }
+
 
         /* ---- 2. 正常S曲线运动 ---- */
         float v_target = m->v_n;
@@ -707,4 +802,55 @@ void TIM1_UP_TIM10_IRQHandler(void)
         if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
         SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
     }
+    
+    switch(s_sysToOrigin)
+    {
+          case defaultset:
+              OUT(3, 0);
+              OUT(2, 1);
+              OUT(1, 1);
+              s_sysToOrigin++;
+              return;
+          case gripperSetDR:
+              if (MOTOR_GripperMoveDR_F != SMD_DR_READ(MOTOR_GripperMove))
+              {
+                  smd_freq_gradient[MOTOR_GripperMove].is_running = 1;
+                  smd_freq_gradient[MOTOR_GripperMove].dir_change = 1;
+                  smd_freq_gradient[MOTOR_GripperMove].dir_state  = SMD_DIR_NORMAL;
+              }
+              s_sysToOrigin++;
+              return;
+          case waitPressUP:
+              if (!IN_READ(3) && !IN_READ(4))
+              {
+                  s_sysToOrigin++;
+              }
+              return;
+          case gripperSettoOriginPU:
+              if (!smd_freq_gradient[MOTOR_GripperMove].dir_change &&
+                   smd_freq_gradient[MOTOR_GripperMove].dir_state == SMD_DIR_NORMAL)
+              {
+                  if (GripperToOriginPU != SMD_PU_DATA[MOTOR_GripperMove])
+                  {
+                      SMD_PU_DATA[MOTOR_GripperMove] = GripperToOriginPU;
+                      SMD_PWM_SetFreqGradient((SMD_Channel)MOTOR_GripperMove,
+                                              SMD_PU_DATA[MOTOR_GripperMove],
+                                              SMD_ACC_DATA[MOTOR_GripperMove]);
+                  }
+                  s_sysToOrigin++;
+              }
+              return;
+          case waitToOrigin:
+              if (!IN_READ(5))
+              {
+                  GripperCurStepsU = 0; 
+                  GripperCurStepsF = 0; 
+                  s_sysToOrigin++;
+              }
+              return;
+          case toOriginSuccess:
+              break;
+          default:
+              break;
+      }
 }
