@@ -794,7 +794,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
                     hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
                     break;
                 case MOTOR_Feed:
-                    hit = ((!IN_READ(7) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    hit = ((!IN_READ(7) && cur_dir) || (!IN_READ(8) && !cur_dir));
                     break;
                 default:
                     break;
@@ -838,7 +838,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
                     hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
                     break;
                 case MOTOR_Feed:
-                    hit = ((!IN_READ(7) && cur_dir) || (!IN_READ(9) && !cur_dir));
+                    hit = (((!IN_READ(7) || !IN_READ(9)) && cur_dir) || (!IN_READ(8) && !cur_dir));
                     break;
                 default:
                     break;
