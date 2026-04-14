@@ -89,7 +89,7 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
 {
     uint8_t i = 0;
     
-    if(_val == WRITE_HOLDING_V)
+    if((_val == WRITE_HOLDING_V) || (g_sysToOrigin != toOriginSuccess))
         return;
     
     _mbs->regHoldingBuf[_reg] = _val;

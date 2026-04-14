@@ -123,6 +123,19 @@ typedef struct
     uint16_t targetSteps;
 } GripperStepsCtl_t;
 extern GripperStepsCtl_t g_gripperStepsCtl;   // 夹爪当前步数整数部分
+typedef enum
+{
+    defaultset = 0,         //初始化继电器默认状态
+    gripperSetDR,           //设置夹爪电机的方向
+    waitPressUP,            //等待下压和送发气缸升起
+    gripperSettoOriginPU,   //设置夹爪电机脉冲
+    waitToOrigin,           //等待夹爪到达原点
+    toOriginSuccess,        //复位完成
+    GrippertoOrigin_P_MAX
+} GrippertoOrigin_P;
+
+extern GrippertoOrigin_P g_sysToOrigin;
+
 /* ========================= 函数声明 ========================= */
 
 /* 初始化 */
