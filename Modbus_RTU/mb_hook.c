@@ -60,6 +60,7 @@ void mbs_hook_updata_holding(mbs *_mbs)
         }
 
         _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = GripperCurStepsU;
+        _mbs->regHoldingBuf[SYS_TO_ORIGIN] = g_sysToOrigin;
     }
     else if(_mbs == &mbsSTM)
     {
