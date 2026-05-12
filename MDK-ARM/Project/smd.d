@@ -33,4 +33,8 @@ project\smd.o: ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim.h
 project\smd.o: ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h
 project\smd.o: ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h
 project\smd.o: ../Core/Inc/gpio.h
+project\smd.o: ../Modbus_RTU/mb_hook.h
+project\smd.o: ../Modbus_RTU/mb_slave.h
+project\smd.o: ../Modbus_RTU/mb_port.h
+project\smd.o: ../Modbus_RTU/mb_slave.h
 project\smd.o: F:\Keil_v5\Setup\ARM\ARMCC\Bin\..\include\math.h

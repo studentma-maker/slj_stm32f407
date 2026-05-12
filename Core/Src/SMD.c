@@ -1,5 +1,6 @@
 #include "SMD.h"
 #include "main.h"
+#include "mb_hook.h"
 #include <math.h>
 #include <stdint.h>
 
@@ -294,12 +295,7 @@ static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
             htim13_smd.Instance->CCR1 = arr / 2;
             //htim13_smd.Instance->EGR  = TIM_EGR_UG;
             break;
-        case SMD_CH5:
-            htim14_smd.Instance->PSC = psc;
-            htim14_smd.Instance->ARR = arr;
-            htim14_smd.Instance->CCR1 = arr / 2;
-            //htim14_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
+        case SMD_CH5: break;  // MOTOR_Feed uses OUT pin level control, skip PWM register write
         case SMD_CH6:
             htim1_smd.Instance->PSC = psc;
             htim1_smd.Instance->ARR = arr;
@@ -390,7 +386,7 @@ HAL_StatusTypeDef SMD_PWM_Init(SMD_Channel ch)
         case SMD_CH2: htim5_smd.Instance  = TIM5;  return SMD_Init_NormalTimer(&htim5_smd,  psc, arr, TIM_CHANNEL_4);
         case SMD_CH3: htim8_smd.Instance  = TIM8;  return SMD_Init_HighTimer  (&htim8_smd,  psc, arr, TIM_CHANNEL_1);
         case SMD_CH4: htim13_smd.Instance = TIM13; return SMD_Init_NormalTimer(&htim13_smd, psc, arr, TIM_CHANNEL_1);
-        case SMD_CH5: htim14_smd.Instance = TIM14; return SMD_Init_NormalTimer(&htim14_smd, psc, arr, TIM_CHANNEL_1);
+        case SMD_CH5: return HAL_OK;  // MOTOR_Feed uses OUT pin level control, no PWM timer needed
         case SMD_CH6: htim1_smd.Instance  = TIM1;  return SMD_Init_HighTimer  (&htim1_smd,  psc, arr, TIM_CHANNEL_2);
         case SMD_CH7: htim3_smd.Instance  = TIM3;  return SMD_Init_NormalTimer(&htim3_smd,  psc, arr, TIM_CHANNEL_4);
         default:      return HAL_ERROR;
@@ -426,7 +422,7 @@ HAL_StatusTypeDef SMD_PWM_Start(SMD_Channel ch)
         case SMD_CH2: return HAL_TIM_PWM_Start(&htim5_smd,   TIM_CHANNEL_4);
         case SMD_CH3: return HAL_TIMEx_PWMN_Start(&htim8_smd,  TIM_CHANNEL_1);
         case SMD_CH4: return HAL_TIM_PWM_Start(&htim13_smd,  TIM_CHANNEL_1);
-        case SMD_CH5: return HAL_TIM_PWM_Start(&htim14_smd,  TIM_CHANNEL_1);
+        case SMD_CH5: return HAL_OK;  // MOTOR_Feed uses OUT pin level control
         case SMD_CH6: return HAL_TIMEx_PWMN_Start(&htim1_smd,  TIM_CHANNEL_2);
         case SMD_CH7: return HAL_TIM_PWM_Start(&htim3_smd,   TIM_CHANNEL_4);
         default:      return HAL_ERROR;
@@ -442,7 +438,14 @@ HAL_StatusTypeDef SMD_PWM_Stop(SMD_Channel ch)
         case SMD_CH2: return HAL_TIM_PWM_Stop(&htim5_smd,   TIM_CHANNEL_4);
         case SMD_CH3: return HAL_TIMEx_PWMN_Stop(&htim8_smd,  TIM_CHANNEL_1);
         case SMD_CH4: return HAL_TIM_PWM_Stop(&htim13_smd,  TIM_CHANNEL_1);
-        case SMD_CH5: return HAL_TIM_PWM_Stop(&htim14_smd,  TIM_CHANNEL_1);
+        case SMD_CH5:
+            OUT(12, 0);
+            OUT(13, 0);
+            mbsUSB.regHoldingBuf[OUT_13_ADDR] = 0;
+            mbsUSB.regHoldingBuf[OUT_14_ADDR] = 0;
+            mbsESP.regHoldingBuf[OUT_13_ADDR] = 0;
+            mbsESP.regHoldingBuf[OUT_14_ADDR] = 0;
+            return HAL_OK;
         case SMD_CH6: return HAL_TIMEx_PWMN_Stop(&htim1_smd,  TIM_CHANNEL_2);
         case SMD_CH7: return HAL_TIM_PWM_Stop(&htim3_smd,   TIM_CHANNEL_4);
         default:      return HAL_ERROR;
@@ -469,6 +472,7 @@ HAL_StatusTypeDef SMD_PWM_StopAll(void)
 void SMD_PWM_SetDuty(SMD_Channel ch, uint32_t duty)
 {
     if (ch >= SMD_CH_MAX) return;
+    if (ch == MOTOR_Feed) return;  // MOTOR_Feed uses OUT pin level control
 	if (smd_freq_gradient[ch].current_freq_int == 0) return;
     uint32_t max_duty = SMD_COUNTER_FREQ / smd_freq_gradient[ch].current_freq_int;
     if (duty > max_duty) duty = max_duty;
@@ -480,7 +484,7 @@ void SMD_PWM_SetDuty(SMD_Channel ch, uint32_t duty)
         case SMD_CH2: __HAL_TIM_SET_COMPARE(&htim5_smd,   TIM_CHANNEL_4, duty); break;
         case SMD_CH3: __HAL_TIM_SET_COMPARE(&htim8_smd,   TIM_CHANNEL_1, duty); break;
         case SMD_CH4: __HAL_TIM_SET_COMPARE(&htim13_smd,  TIM_CHANNEL_1, duty); break;
-        case SMD_CH5: __HAL_TIM_SET_COMPARE(&htim14_smd,  TIM_CHANNEL_1, duty); break;
+        case SMD_CH5: break;  // MOTOR_Feed uses OUT pin level control
         case SMD_CH6: __HAL_TIM_SET_COMPARE(&htim1_smd,   TIM_CHANNEL_2, duty); break;
         case SMD_CH7: __HAL_TIM_SET_COMPARE(&htim3_smd,   TIM_CHANNEL_4, duty); break;
         default: break;
@@ -502,6 +506,7 @@ HAL_StatusTypeDef SMD_PWM_SetFreq(SMD_Channel ch, uint32_t freq)
 {
     if (ch >= SMD_CH_MAX || freq < SMD_PWM_FREQ_MIN || freq > SMD_PWM_FREQ_MAX)
         return HAL_ERROR;
+    if (ch == MOTOR_Feed) return HAL_OK;  // MOTOR_Feed uses OUT pin level control
 
     uint32_t psc, arr;
     SMD_Calc_PSC_ARR(freq, &psc, &arr, (int)ch);
@@ -516,7 +521,7 @@ HAL_StatusTypeDef SMD_PWM_SetFreq(SMD_Channel ch, uint32_t freq)
         case SMD_CH2: htim5_smd.Init.Prescaler  = psc; htim5_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim5_smd);  break;
         case SMD_CH3: htim8_smd.Init.Prescaler  = psc; htim8_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim8_smd);  break;
         case SMD_CH4: htim13_smd.Init.Prescaler = psc; htim13_smd.Init.Period = arr; ret = HAL_TIM_PWM_Init(&htim13_smd); break;
-        case SMD_CH5: htim14_smd.Init.Prescaler = psc; htim14_smd.Init.Period = arr; ret = HAL_TIM_PWM_Init(&htim14_smd); break;
+        case SMD_CH5: return HAL_OK;  // MOTOR_Feed uses OUT pin level control
         case SMD_CH6: htim1_smd.Init.Prescaler  = psc; htim1_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim1_smd);  break;
         case SMD_CH7: htim3_smd.Init.Prescaler  = psc; htim3_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim3_smd);  break;
         default: return HAL_ERROR;
@@ -549,7 +554,7 @@ HAL_StatusTypeDef SMD_PWM_SetFreqGradient(SMD_Channel ch, uint32_t target_freq, 
     m->v_n        = (float)target_freq;
     SMD_ACC_DATA[ch] = (uint16_t)accel; // 存储 ACC_MAX，中断里取用
 
-	if(target_freq > SMD_PWM_FREQ_MIN) SMD_PWM_Start(ch);
+	if(target_freq > SMD_PWM_FREQ_MIN && ch != MOTOR_Feed) SMD_PWM_Start(ch);
     m->is_running = 1;
 
     return HAL_OK;
@@ -751,6 +756,12 @@ static void SMD_SysToOrigin(void)
               OUT(3, 0);
               OUT(2, 1);
               OUT(1, 1);
+              mbsUSB.regHoldingBuf[OUT_4_ADDR] = 0;
+              mbsUSB.regHoldingBuf[OUT_3_ADDR] = 1;
+              mbsUSB.regHoldingBuf[OUT_2_ADDR] = 1;
+              mbsESP.regHoldingBuf[OUT_4_ADDR] = 0;
+              mbsESP.regHoldingBuf[OUT_3_ADDR] = 1;
+              mbsESP.regHoldingBuf[OUT_2_ADDR] = 1;
               g_sysToOrigin++;
               return;
           case gripperSetDR:
@@ -827,6 +838,71 @@ void TIM1_UP_TIM10_IRQHandler(void)
         SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
 
         if (!m->is_running) continue;
+
+        /* ================================================================
+         * MOTOR_Feed(SMD_6)：OUT引脚电平控制，不走S曲线
+         * ================================================================ */
+        if (ch == MOTOR_Feed)
+        {
+            /* 方向切换：立即生效，无需减速 */
+            if (m->dir_change)
+            {
+                uint8_t cur_dir6 = (uint8_t)SMD_DR_READ(ch);
+                SMD_DR(ch, !cur_dir6);
+                cur_dir6 = !cur_dir6;
+                m->dir_change = 0;
+                m->dir_state  = SMD_DIR_NORMAL;
+            }
+
+            uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
+
+            /* 限位检测 */
+            if (SMD_IsLimited(ch, cur_dir, m))
+            {
+                m->dir_change = 0;
+                /* 限位触发后 SMD_IsLimited 已设置 OUT(12,0) OUT(13,0) 并更新 regHoldingBuf */
+                continue;
+            }
+
+            /* PU > MIN → 电机转动，根据方向控制OUT引脚 */
+            if (SMD_PU_DATA[ch] > SMD_PWM_FREQ_MIN)
+            {
+                if (cur_dir)
+                {
+                    /* 正转：OUT13(i=12)=高, OUT14(i=13)=低 */
+                    OUT(12, 1);
+                    OUT(13, 0);
+                    mbsUSB.regHoldingBuf[OUT_13_ADDR] = 1;
+                    mbsUSB.regHoldingBuf[OUT_14_ADDR] = 0;
+                    mbsESP.regHoldingBuf[OUT_13_ADDR] = 1;
+                    mbsESP.regHoldingBuf[OUT_14_ADDR] = 0;
+                }
+                else
+                {
+                    /* 反转：OUT13(i=12)=低, OUT14(i=13)=高 */
+                    OUT(12, 0);
+                    OUT(13, 1);
+                    mbsUSB.regHoldingBuf[OUT_13_ADDR] = 0;
+                    mbsUSB.regHoldingBuf[OUT_14_ADDR] = 1;
+                    mbsESP.regHoldingBuf[OUT_13_ADDR] = 0;
+                    mbsESP.regHoldingBuf[OUT_14_ADDR] = 1;
+                }
+            }
+            else
+            {
+                /* PU == MIN → 停止：两个引脚都拉低 */
+                OUT(12, 0);
+                OUT(13, 0);
+                mbsUSB.regHoldingBuf[OUT_13_ADDR] = 0;
+                mbsUSB.regHoldingBuf[OUT_14_ADDR] = 0;
+                mbsESP.regHoldingBuf[OUT_13_ADDR] = 0;
+                mbsESP.regHoldingBuf[OUT_14_ADDR] = 0;
+                m->v_c        = 0.0f;
+                m->a_c        = 0.0f;
+                m->is_running = 0;
+            }
+            continue;
+        }
 
         /* ================================================================
          * 分支A：v_c == 0，先换向再检测限位
