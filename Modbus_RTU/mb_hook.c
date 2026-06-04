@@ -59,7 +59,8 @@ void mbs_hook_updata_holding(mbs *_mbs)
             _mbs->regHoldingBuf[ADC_1_ADDR + i] = mbsSTM.regHoldingBuf[i];
         }
 
-        _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = GripperCurStepsU;
+        _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = MotorCurStepsU[MOTOR_GripperMove];
+        _mbs->regHoldingBuf[UPDOWN_CUR_STEPS]  = MotorCurStepsU[MOTOR_UpDown];
         _mbs->regHoldingBuf[SYS_TO_ORIGIN] = g_sysToOrigin;
     }
     else if(_mbs == &mbsSTM)
@@ -100,14 +101,20 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
         switch(_reg)
         {
             case GRIPPER_TARGET_STEPS:
-                g_gripperStepsCtl.targetSteps = _mbs->regHoldingBuf[GRIPPER_TARGET_STEPS];
-                g_gripperStepsCtl.is_running = 1;
+                g_motorStepsCtl[MOTOR_GripperMove].targetSteps = _mbs->regHoldingBuf[GRIPPER_TARGET_STEPS];
+                g_motorStepsCtl[MOTOR_GripperMove].is_running  = 1;
+                g_motorStepsCtl[MOTOR_GripperMove].braking     = 0;
+                return;
+            case UPDOWN_TARGET_STEPS:
+                g_motorStepsCtl[MOTOR_UpDown].targetSteps = _mbs->regHoldingBuf[UPDOWN_TARGET_STEPS];
+                g_motorStepsCtl[MOTOR_UpDown].is_running  = 1;
+                g_motorStepsCtl[MOTOR_UpDown].braking     = 0;
                 return;
             default: break;
         }
         for(i = 0; i < 8; i++)
         {
-            if(i == MOTOR_GripperMove && g_gripperStepsCtl.is_running) continue;
+            if(g_motorStepsCtl[i].is_running) continue;
         	/* --- 一次性写入多个寄存器的值，顺序要求：先jerk 和acc_max 最后是pu --- */
             /* --- 使能控制 --- */
             if(_mbs->regHoldingBuf[SMD_1_EN_ADDR + i*10] != SMD_EN_READ(i))

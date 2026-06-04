@@ -59,11 +59,11 @@ typedef enum
     SMD_CH0 = 0,  // PA1 - TIM2_CH2
     MOTOR_PaiFa = SMD_CH0 ,//排发电机别名
     SMD_CH1,      // PA2 - TIM9_CH1
-    MOTOR_UpDown = SMD_CH1 ,//升降电机别名
+    MOTOR_Trans = SMD_CH1 ,//送发电机别名
     SMD_CH2,      // PA3 - TIM5_CH4
     MOTOR_FBack = SMD_CH2 ,//进退电机别名
     SMD_CH3,      // PA5 - TIM8_CH1N
-    MOTOR_Trans = SMD_CH3 ,//送发电机别名
+    MOTOR_UpDown = SMD_CH3 ,//升降电机别名
     SMD_CH4,      // PA6 - TIM13_CH1
     MOTOR_GripperMove = SMD_CH4,
     SMD_CH5,      // PA7 - TIM14_CH1
@@ -116,13 +116,26 @@ extern TIM_HandleTypeDef htim10;
 extern uint16_t SMD_PU_DATA[8];   // 目标频率 Hz
 extern uint16_t SMD_ACC_DATA[8];  // 最大加速度 Hz/s
 extern uint16_t SMD_JERK_DATA[8]; // Jerk Hz/s²，S曲线加加速度，用户可通过Modbus自定义
-extern uint16_t GripperCurStepsU;   // 夹爪当前步数整数部分
+extern uint16_t MotorCurStepsU[SMD_CH_MAX];   // 各通道当前步数整数部分
 typedef struct
 {
-    uint8_t  is_running;
+    uint8_t  is_running;       /* 0=idle, 1=S曲线运动, 2=末端蠕动修正 */
     uint16_t targetSteps;
+    uint8_t  braking;          /* 1=正在S曲线刹车中，禁止重复决策 */
 } GripperStepsCtl_t;
-extern GripperStepsCtl_t g_gripperStepsCtl;   // 夹爪当前步数整数部分
+extern GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX];   // 各通道步数控制状态
+
+/* 向后兼容别名 */
+#define GripperCurStepsU       MotorCurStepsU[MOTOR_GripperMove]
+#define g_gripperStepsCtl     g_motorStepsCtl[MOTOR_GripperMove]
+#define UpDownCurStepsU        MotorCurStepsU[MOTOR_UpDown]
+#define g_upDownStepsCtl      g_motorStepsCtl[MOTOR_UpDown]
+
+/* 步数控制参数 */
+#define GRIPPER_MOVE_MAXPU     2000u
+#define GRIPPER_CREEP_FREQ     250u
+#define UPDOWN_MOVE_MAXPU      2000u
+#define UPDOWN_CREEP_FREQ      250u
 typedef enum
 {
     defaultset = 0,         //初始化继电器默认状态

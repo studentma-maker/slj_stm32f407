@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "mb_slave.h"
+#include "mb_hook.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -115,6 +116,10 @@ int main(void)
 	SMD_PWM_InitAll();
     /* USER CODE END 2 */
 
+    /* 初始化保持寄存器镜像，防止首次 Modbus 写触发 ACC clamp 到 1 */                                                                                               
+    mbs_hook_updata_holding(&mbsUSB);                                                                                               
+    mbs_hook_updata_holding(&mbsESP);                                                                                               
+    mbs_hook_updata_holding(&mbsSTM); 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
     while (1)

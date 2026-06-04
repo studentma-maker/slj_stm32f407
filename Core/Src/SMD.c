@@ -44,20 +44,20 @@ uint16_t SMD_JERK_DATA[8] = {
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT, 
 	SMD_JERK_DEFAULT, SMD_JERK_DEFAULT
 };
-uint16_t GripperCurStepsU = 0; 
-static float GripperCurStepsF = 0; 
+uint16_t MotorCurStepsU[SMD_CH_MAX] = {0};
+static uint32_t MotorCurStepsSub[SMD_CH_MAX] = {0};  /* 子步累加器 (1步=1000子步)，消除浮点累积误差 */
 #define GripperToOriginPU   1600
+#define UpDownToOriginPU    1600
 
 typedef enum  {
     MOTOR_GripperMoveDR_F = 0,  //夹爪往排发方向运行:feed
     MOTOR_GripperMoveDR_G,      //夹爪夹取假发:grip
     MOTOR_GripperMoveDR_t_MAX
 }MOTOR_GripperMoveDR_t;
-#define GRIPPER_MOVE_MAXPU     2000 
 GrippertoOrigin_P g_sysToOrigin = defaultset;
-GripperStepsCtl_t g_gripperStepsCtl = {
-    .is_running = 0,
-    .targetSteps = 0,
+GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX] = {
+    {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+    {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
 };
 
 /**
@@ -257,6 +257,26 @@ static void SMD_Calc_PSC_ARR(uint32_t freq, uint32_t *psc, uint32_t *arr, int ch
  * @brief  仅更新PSC/ARR寄存器，不停止PWM，适合中断内调用
  * @note   利用 ARR 预装载，修改在下一个周期生效，无毛刺
  */
+static void SMD_AccumulateSteps(SMD_Channel ch, uint32_t freq_int)
+{
+    MotorCurStepsSub[ch] += freq_int;  /* freq_int 子步/ms，1000子步 = 1整步 */
+    uint16_t whole = (uint16_t)(MotorCurStepsSub[ch] / 1000u);
+    if (whole > 0)
+    {
+        MotorCurStepsSub[ch] -= (uint32_t)whole * 1000u;
+        if (SMD_DR_READ(ch))
+            MotorCurStepsU[ch] += whole;
+        else {
+            if (MotorCurStepsU[ch] < whole) MotorCurStepsU[ch] = 0;
+            else MotorCurStepsU[ch] -= whole;
+        }
+    }
+}
+
+/**
+ * @brief  仅更新PSC/ARR寄存器，不停止PWM，适合中断内调用
+ * @note   利用 ARR 预装载，修改在下一个周期生效，无毛刺
+ */
 static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
 {
     uint32_t psc, arr;
@@ -312,24 +332,8 @@ static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
     }
 
     smd_freq_gradient[ch].current_freq_int = freq_int;
-    if (ch == MOTOR_GripperMove)
-    {
-        GripperCurStepsF += (float)freq_int * SMD_UPDATE_DT_s;
-
-        uint16_t whole = (uint16_t)GripperCurStepsF;
-        if (whole > 0)
-        {
-            GripperCurStepsF -= (float)whole;
-
-            /* 读取方向引脚：1→正转累加，0→反转累减 */
-            if (SMD_DR_READ(ch))
-                GripperCurStepsU += whole;
-            else{
-                if(GripperCurStepsU < whole) GripperCurStepsU = 0;
-                else GripperCurStepsU -= whole;
-            }
-        }
-    }
+    if (ch == MOTOR_GripperMove || ch == MOTOR_UpDown)
+        SMD_AccumulateSteps(ch, freq_int);
 }
 
 /* ========================= 内部：S曲线速度更新（移植自ESP32 update_velocity） ========================= */
@@ -651,102 +655,233 @@ int32_t SMD_CalcAccNeedSteps(float v_current, float a_current,
 
     return (int32_t)(total + 0.5);
 }
-
-static void SMD_GripperStepsCtl(void)
+static uint8_t SMD_IsLimited(int ch,uint8_t cur_dir,SMD_Freq_Gradient *m)
 {
-    if (!g_gripperStepsCtl.is_running) return;
-
-    SMD_Freq_Gradient *m = &smd_freq_gradient[MOTOR_GripperMove];
-
-    int32_t step_remain = (int32_t)g_gripperStepsCtl.targetSteps - (int32_t)GripperCurStepsU;
-
-    if (step_remain == 0)
+    uint8_t hit = 0;
+    switch (ch)
     {
-        g_gripperStepsCtl.is_running = 0;
+      case MOTOR_UpDown:
+          hit = (!IN_READ(0) && !cur_dir);
+          break;
+      case MOTOR_FBack:
+          hit = ((!IN_READ(1) && !cur_dir) || (!IN_READ(2) && cur_dir));
+          break;
+      case MOTOR_GripperMove:
+          hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
+          break;
+      case MOTOR_Feed:
+          hit = (((!IN_READ(7) || !IN_READ(9)) && cur_dir) || (!IN_READ(8) && !cur_dir));
+          break;
+      default:
+          break;
+    }
+    if(!IN_READ(19)) hit = 1;//急停按钮
+    if(hit)
+    {
+      SMD_PWM_Stop((SMD_Channel)ch);
+      SMD_PU_DATA[ch]     = SMD_PWM_FREQ_MIN;
+      m->v_c              = 0.0f;
+      m->a_c              = 0.0f;
+      m->v_n              = (float)SMD_PWM_FREQ_MIN;
+      m->is_running       = 0;
+      m->current_freq_int = SMD_PWM_FREQ_MIN;
+      m->dir_change       = 0;
+      m->dir_state        = SMD_DIR_NORMAL;
+      if (g_motorStepsCtl[ch].is_running)
+      {
+          g_motorStepsCtl[ch].is_running = 0;
+          g_motorStepsCtl[ch].braking = 0;
+      }
+      /* 触发原点限位时步数清零 */
+      if (ch == MOTOR_UpDown && !IN_READ(0))
+      {
+          MotorCurStepsU[ch] = 0;
+          MotorCurStepsSub[ch] = 0;
+      }
+      if (ch == MOTOR_GripperMove && !IN_READ(5))
+      {
+          MotorCurStepsU[ch] = 0;
+          MotorCurStepsSub[ch] = 0;
+      }
+    }
+    return hit;
+}
+
+static uint16_t MotorStepsMaxPU(SMD_Channel ch)
+{
+    switch (ch) {
+        case MOTOR_GripperMove: return GRIPPER_MOVE_MAXPU;
+        case MOTOR_UpDown:      return UPDOWN_MOVE_MAXPU;
+        default: return 0;
+    }
+}
+static uint16_t MotorStepsCreepFreq(SMD_Channel ch)
+{
+    switch (ch) {
+        case MOTOR_GripperMove: return GRIPPER_CREEP_FREQ;
+        case MOTOR_UpDown:      return UPDOWN_CREEP_FREQ;
+        default: return 0;
+    }
+}
+
+static void SMD_MotorStepsCtl(SMD_Channel ch)
+{
+    if (!g_motorStepsCtl[ch].is_running) return;
+
+    SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
+    int32_t step_remain = (int32_t)g_motorStepsCtl[ch].targetSteps - (int32_t)MotorCurStepsU[ch];
+    uint16_t creep_freq = MotorStepsCreepFreq(ch);
+    uint16_t max_pu     = MotorStepsMaxPU(ch);
+
+    /* ============================================================
+     * 回零模式：targetSteps == 0，直接向原点限位移动，触发即停
+     * 升降电机 cur_dir=0 上升→上限位 IN_READ(0)
+     * 夹爪电机 cur_dir=0 →零点限位 IN_READ(5)
+     * ============================================================ */
+    if (g_motorStepsCtl[ch].targetSteps == 0)
+    {
+        if (SMD_DR_READ(ch) != 0)
+        {
+            m->is_running = 1;
+            m->dir_change = 1;
+            m->dir_state  = SMD_DIR_NORMAL;
+            return;
+        }
+        if (m->dir_change) return;
+        if (SMD_PU_DATA[ch] != max_pu || !m->is_running)
+        {
+            SMD_PU_DATA[ch] = max_pu;
+            SMD_PWM_SetFreqGradient(ch, max_pu, SMD_ACC_DATA[ch]);
+        }
         return;
     }
 
-    uint8_t need_dir    = (step_remain > 0) ? 1u : 0u;
+    /* ============================================================
+     * 阶段2：末端蠕动修正 (is_running == 2)
+     * ============================================================ */
+    if (g_motorStepsCtl[ch].is_running == 2)
+    {
+        /* 先累加本拍步数再判断，消除1ms滞后 */
+        SMD_AccumulateSteps(ch, creep_freq);
+        int32_t remain = (int32_t)g_motorStepsCtl[ch].targetSteps - (int32_t)MotorCurStepsU[ch];
+
+        /* 蠕动中检测限位 */
+        uint8_t cur_dir = SMD_DR_READ(ch);
+        if (SMD_IsLimited(ch, cur_dir, m))
+        {
+            g_motorStepsCtl[ch].braking = 0;
+            return;
+        }
+
+        if (remain == 0)
+        {
+            SMD_PWM_Stop(ch);
+            m->v_c              = 0.0f;
+            m->a_c              = 0.0f;
+            m->is_running       = 0;
+            m->current_freq_int = SMD_PWM_FREQ_MIN;
+            m->v_n              = (float)SMD_PWM_FREQ_MIN;
+            g_motorStepsCtl[ch].is_running = 0;
+            g_motorStepsCtl[ch].braking    = 0;
+        }
+        return;
+    }
+
+    /* ============================================================
+     * 阶段1：S曲线运动 (is_running == 1)
+     * ============================================================ */
+
+    /* --- 1a. 刹车中：等待 S 曲线自然停止后转入蠕动修正 --- */
+    if (g_motorStepsCtl[ch].braking)
+    {
+        if (!m->is_running)
+        {
+            /* S曲线已停止 */
+            if (step_remain == 0)
+            {
+                g_motorStepsCtl[ch].is_running = 0;
+                g_motorStepsCtl[ch].braking    = 0;
+            }
+            else
+            {
+                /* 进入末端蠕动修正：先查限位再启动 PWM */
+                uint8_t need_dir = (step_remain > 0) ? 1u : 0u;
+                if (SMD_DR_READ(ch) != need_dir)
+                    SMD_DR(ch, need_dir);
+
+                if (SMD_IsLimited(ch, need_dir, m))
+                {
+                    g_motorStepsCtl[ch].is_running = 0;
+                    g_motorStepsCtl[ch].braking    = 0;
+                    return;
+                }
+
+                SMD_ApplyFreqToHW(ch, creep_freq);
+                SMD_PWM_Start(ch);
+                g_motorStepsCtl[ch].is_running = 2;
+                g_motorStepsCtl[ch].braking    = 0;
+            }
+        }
+        return;
+    }
+
+    /* --- 1b. 正常运动决策 --- */
+
+    /* 已精确到达目标：立即停止 */
+    if (step_remain == 0)
+    {
+        SMD_PWM_Stop(ch);
+        m->v_c              = 0.0f;
+        m->a_c              = 0.0f;
+        m->is_running       = 0;
+        m->current_freq_int = SMD_PWM_FREQ_MIN;
+        SMD_PU_DATA[ch] = SMD_PWM_FREQ_MIN;
+        g_motorStepsCtl[ch].is_running = 0;
+        return;
+    }
+
+    uint8_t need_dir = (step_remain > 0) ? 1u : 0u;
 
     /* 换向处理 */
     if (!m->dir_change && m->dir_state == SMD_DIR_NORMAL)
     {
-      if (need_dir != (uint8_t)SMD_DR_READ(MOTOR_GripperMove))
-      {
-          m->is_running = 1;
-          m->dir_change = 1;
-          m->dir_state  = SMD_DIR_NORMAL;
-          return;
-      }
+        if (need_dir != (uint8_t)SMD_DR_READ(ch))
+        {
+            m->is_running = 1;
+            m->dir_change = 1;
+            m->dir_state  = SMD_DIR_NORMAL;
+            return;
+        }
     }
     else
     {
-      m->is_running = 1;
-      return;
+        m->is_running = 1;
+        return;
     }
 
-    /* 方向正确，计算目标频率 */
+    /* 方向正确，计算刹车距离（加安全余量确保宁欠不过） */
     m->is_running = 1;
     int32_t abs_remain = (step_remain >= 0) ? step_remain : -step_remain;
 
     int32_t pumin_need_s = SMD_CalcAccNeedSteps(
                   m->v_c, m->a_c,
                   (float)SMD_PWM_FREQ_MIN,
-                  (float)SMD_ACC_DATA[MOTOR_GripperMove],
-                  (float)SMD_JERK_DATA[MOTOR_GripperMove]);
+                  (float)SMD_ACC_DATA[ch],
+                  (float)SMD_JERK_DATA[ch]);
 
-    uint16_t freq_int = (abs_remain > pumin_need_s) ? GRIPPER_MOVE_MAXPU : SMD_PWM_FREQ_MIN;
+    /* 安全余量：+5% + 20步，配合末端蠕动修正实现零误差 */
+    pumin_need_s = pumin_need_s + (pumin_need_s / 20) + 20;
 
-    /* ★ 核心修复：只有目标频率发生变化时，才调用 SetFreqGradient */
-    if (freq_int != SMD_PU_DATA[MOTOR_GripperMove])
-    {
-      SMD_PU_DATA[MOTOR_GripperMove] = freq_int;
-      SMD_PWM_SetFreqGradient((SMD_Channel)MOTOR_GripperMove,
-                               freq_int,
-                               SMD_ACC_DATA[MOTOR_GripperMove]);
+    uint16_t freq_int = (abs_remain > pumin_need_s) ? max_pu : SMD_PWM_FREQ_MIN;
 
-      if (freq_int == SMD_PWM_FREQ_MIN)
-          g_gripperStepsCtl.is_running = 0;
-    }
-}
-static uint8_t SMD_IsLimited(int ch,uint8_t cur_dir,SMD_Freq_Gradient *m)
-{
-    uint8_t hit = 0;
-    switch (ch)
+    if (freq_int != SMD_PU_DATA[ch])
     {
-        case MOTOR_UpDown:
-            hit = (!IN_READ(0) && !cur_dir);
-            break;
-        case MOTOR_FBack:
-            hit = ((!IN_READ(1) && !cur_dir) || (!IN_READ(2) && cur_dir));
-            break;
-        case MOTOR_GripperMove:
-            hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
-            break;
-        case MOTOR_Feed:
-            hit = (((!IN_READ(7) || !IN_READ(9)) && cur_dir) || (!IN_READ(8) && !cur_dir));
-            break;
-        default:
-            break;
+        SMD_PU_DATA[ch] = freq_int;
+        SMD_PWM_SetFreqGradient(ch, freq_int, SMD_ACC_DATA[ch]);
+
+        if (freq_int == SMD_PWM_FREQ_MIN)
+            g_motorStepsCtl[ch].braking = 1;  /* 进入刹车监视，S曲线负责减速 */
     }
-    if(!IN_READ(19)) hit = 1;//急停按钮
-    if(hit)
-    {
-        SMD_PWM_Stop((SMD_Channel)ch);
-        SMD_PU_DATA[ch]     = SMD_PWM_FREQ_MIN;
-        m->v_c              = 0.0f;
-        m->a_c              = 0.0f;
-        m->v_n              = (float)SMD_PWM_FREQ_MIN;
-        m->is_running       = 0;
-        m->current_freq_int = SMD_PWM_FREQ_MIN;
-        m->dir_change       = 0;
-        m->dir_state        = SMD_DIR_NORMAL;
-        if (ch == MOTOR_GripperMove)
-        {
-            g_gripperStepsCtl.is_running = 0;
-        }
-    }
-    return hit;
 }
 static void SMD_SysToOrigin(void)
 {
@@ -796,8 +931,8 @@ static void SMD_SysToOrigin(void)
           case waitToOrigin:
               if (!IN_READ(5))
               {
-                  GripperCurStepsU = 0; 
-                  GripperCurStepsF = 0; 
+                  MotorCurStepsU[MOTOR_GripperMove] = 0;
+                  MotorCurStepsSub[MOTOR_GripperMove] = 0;
                   g_sysToOrigin++;
               }
               return;
@@ -832,7 +967,6 @@ void TIM1_UP_TIM10_IRQHandler(void)
 
     num++;
 
-    SMD_GripperStepsCtl();
     for (int ch = 0; ch < SMD_CH_MAX; ch++)
     {
         SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
@@ -1031,6 +1165,8 @@ void TIM1_UP_TIM10_IRQHandler(void)
         if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
         SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
     }
-    
+
+    SMD_MotorStepsCtl(MOTOR_GripperMove);
+    SMD_MotorStepsCtl(MOTOR_UpDown);
     SMD_SysToOrigin();
 }
