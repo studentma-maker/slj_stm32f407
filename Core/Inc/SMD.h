@@ -130,12 +130,17 @@ extern GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX];   // 各通道步数控制
 #define g_gripperStepsCtl     g_motorStepsCtl[MOTOR_GripperMove]
 #define UpDownCurStepsU        MotorCurStepsU[MOTOR_UpDown]
 #define g_upDownStepsCtl      g_motorStepsCtl[MOTOR_UpDown]
+#define FBackCurStepsU         MotorCurStepsU[MOTOR_FBack]
+#define g_fBackStepsCtl       g_motorStepsCtl[MOTOR_FBack]
 
 /* 步数控制参数 */
+/* 步数控制刹车参数 */
+#define BRAKE_TARGET_HZ         100u    // 刹车目标速度 Hz
+#define BRAKE_BUFFER            100u    // 巡航缓冲步数（100Hz × 1s）
+
 #define GRIPPER_MOVE_MAXPU     2000u
-#define GRIPPER_CREEP_FREQ     250u
 #define UPDOWN_MOVE_MAXPU      2000u
-#define UPDOWN_CREEP_FREQ      250u
+#define FBACK_MOVE_MAXPU       2000u
 typedef enum
 {
     defaultset = 0,         //初始化继电器默认状态

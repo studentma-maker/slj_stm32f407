@@ -61,6 +61,7 @@ void mbs_hook_updata_holding(mbs *_mbs)
 
         _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = MotorCurStepsU[MOTOR_GripperMove];
         _mbs->regHoldingBuf[UPDOWN_CUR_STEPS]  = MotorCurStepsU[MOTOR_UpDown];
+        _mbs->regHoldingBuf[FBACK_CUR_STEPS]   = MotorCurStepsU[MOTOR_FBack];
         _mbs->regHoldingBuf[SYS_TO_ORIGIN] = g_sysToOrigin;
     }
     else if(_mbs == &mbsSTM)
@@ -90,12 +91,12 @@ void mbs_hook_updata_holding(mbs *_mbs)
 void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
 {
     uint8_t i = 0;
-    
+
     if((_val == WRITE_HOLDING_V) || (g_sysToOrigin != toOriginSuccess))
         return;
-    
+
     _mbs->regHoldingBuf[_reg] = _val;
-    
+
     if(_mbs == &mbsUSB || _mbs == &mbsESP)
     {
         switch(_reg)
@@ -109,6 +110,11 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 g_motorStepsCtl[MOTOR_UpDown].targetSteps = _mbs->regHoldingBuf[UPDOWN_TARGET_STEPS];
                 g_motorStepsCtl[MOTOR_UpDown].is_running  = 1;
                 g_motorStepsCtl[MOTOR_UpDown].braking     = 0;
+                return;
+            case FBACK_TARGET_STEPS:
+                g_motorStepsCtl[MOTOR_FBack].targetSteps = _mbs->regHoldingBuf[FBACK_TARGET_STEPS];
+                g_motorStepsCtl[MOTOR_FBack].is_running  = 1;
+                g_motorStepsCtl[MOTOR_FBack].braking     = 0;
                 return;
             default: break;
         }

@@ -178,6 +178,45 @@ void Error_Handler(void);
 #define IN6_Pin GPIO_PIN_1
 #define IN6_GPIO_Port GPIOE
 
+#define RELAY_FeedHair_down 0
+#define RELAY_FeedHair_up   1
+#define RELAY_PressHair_down 0
+#define RELAY_PressHair_up   1
+#define RELAY_EdgeFold_0   0
+#define RELAY_EdgeFold_1   1
+
+#define WarnLED_on         1
+#define WarnLED_off        0
+typedef enum{
+    RELAY_1 = 0,
+    RELAY_2 ,
+    RELAY_FeedHair = RELAY_2,
+    RELAY_3 ,
+    RELAY_PressHair = RELAY_3,
+    RELAY_4 ,
+    RELAY_EdgeFold = RELAY_4,
+    RELAY_5 ,
+    RELAY_GripClose = RELAY_5,
+    RELAY_6 ,
+    RELAY_EDGEFOLD = RELAY_6,
+    RELAY_7 ,
+    RELAY_WarnRED = RELAY_7,
+    RELAY_8 ,
+    RELAY_WarnYELLOW = RELAY_8,
+    RELAY_9 ,
+    RELAY_WarnGREEN = RELAY_9,
+    RELAY_10 ,
+    RELAY_WarnBEEP = RELAY_10,
+    RELAY_11 ,
+    RELAY_CartFixing = RELAY_11,
+    RELAY_12 ,
+    RELAY_13 ,
+    RELAY_14 ,
+    RELAY_15 ,
+    RELAY_16 ,
+    RELAY_ID_MAX
+}RelayID;
+
 /* USER CODE BEGIN Private defines */
 // 普通输入读取：IN_READ(索引) → 返回 0（低）/1（高）
 // 索引：0~19 → 对应IN1~IN20（0起始）

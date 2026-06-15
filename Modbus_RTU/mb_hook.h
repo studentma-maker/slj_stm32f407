@@ -162,9 +162,11 @@
 #define GRIPPER_CUR_STEPS          132       // 夹爪当前步数
 #define SYS_TO_ORIGIN              133       // 系统初始化状态
 #define UPDOWN_CUR_STEPS           134       // 升降电机当前步数
+#define FBACK_CUR_STEPS            135       // 进退电机当前步数
 
 #define GRIPPER_TARGET_STEPS       198       // 夹爪目标步数
 #define UPDOWN_TARGET_STEPS        197       // 升降电机目标步数
+#define FBACK_TARGET_STEPS         196       // 进退电机目标步数
 #define STOP_ALL_MOTOR_ADDR        (REG_HOLDING_NREGS - 1) // stop all motor
 
 /**********************************************************************************************************
