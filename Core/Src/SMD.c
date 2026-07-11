@@ -721,6 +721,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
         (g_motorStepsCtl[ch].targetSteps == 0xFFFFu && ch != MOTOR_UpDown))
     {
         uint8_t target_dir = (g_motorStepsCtl[ch].targetSteps == 0) ? 0u : 1u;
+        if (ch == MOTOR_FBack) target_dir = 0u;  // FBack: DR=0时步数增加，远端限位也走0方向
 
         if (SMD_DR_READ(ch) != target_dir || SMD_PU_DATA[ch] != max_pu || !m->is_running || m->dir_change)
         {
@@ -774,6 +775,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
     }
 
     uint8_t need_dir = (step_remain > 0) ? 1u : 0u;
+    if (ch == MOTOR_FBack) need_dir = !need_dir;  // FBack方向反逻辑：DR=0时步数增加
 
     /* 换向处理 */
     if (!m->dir_change && m->dir_state == SMD_DIR_NORMAL)
@@ -832,6 +834,7 @@ static void SMD_SysToOrigin(void)
     switch(g_sysToOrigin)
     {
           case defaultset:
+              OUT(RELAY_1, 1);
               OUT(RELAY_FeedHair, RELAY_FeedHair_up);
               OUT(RELAY_PressHair, RELAY_PressHair_up);
               OUT(RELAY_WarnYELLOW, WarnLED_on);

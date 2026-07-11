@@ -112,9 +112,12 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 g_motorStepsCtl[MOTOR_UpDown].braking     = 0;
                 return;
             case FBACK_TARGET_STEPS:
-                g_motorStepsCtl[MOTOR_FBack].targetSteps = _mbs->regHoldingBuf[FBACK_TARGET_STEPS];
-                g_motorStepsCtl[MOTOR_FBack].is_running  = 1;
-                g_motorStepsCtl[MOTOR_FBack].braking     = 0;
+                if (_val != MotorCurStepsU[MOTOR_FBack])
+                {
+                    g_motorStepsCtl[MOTOR_FBack].targetSteps = _val;
+                    g_motorStepsCtl[MOTOR_FBack].is_running  = 1;
+                    g_motorStepsCtl[MOTOR_FBack].braking     = 0;
+                }
                 return;
             default: break;
         }
