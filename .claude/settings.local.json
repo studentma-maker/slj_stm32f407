@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(sed -i 's/i != 3: EN/i != 5: EN/g' Modbus_RTU/mb_hook.c)",
+      "Bash(sed -i 's/i != 3: 舵机不停止/i != 5: 舵机不停止/g' Modbus_RTU/mb_hook.c)"
+    ]
+  }
+}

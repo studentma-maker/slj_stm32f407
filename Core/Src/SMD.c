@@ -261,10 +261,12 @@ static void SMD_AccumulateSteps(SMD_Channel ch, uint32_t freq_int)
 {
     MotorCurStepsSub[ch] += freq_int;  /* freq_int 子步/ms，1000子步 = 1整步 */
     uint16_t whole = (uint16_t)(MotorCurStepsSub[ch] / 1000u);
+    uint8_t dir = SMD_DR_READ(ch);
+    if(ch == MOTOR_FBack) dir = !dir;
     if (whole > 0)
     {
         MotorCurStepsSub[ch] -= (uint32_t)whole * 1000u;
-        if (SMD_DR_READ(ch))
+        if (dir)
             MotorCurStepsU[ch] += whole;
         else {
             if (MotorCurStepsU[ch] < whole) MotorCurStepsU[ch] = 0;
@@ -683,17 +685,7 @@ static uint8_t SMD_IsLimited(int ch,uint8_t cur_dir,SMD_Freq_Gradient *m)
           g_motorStepsCtl[ch].braking = 0;
       }
       /* 触发原点限位时步数清零 */
-      if (ch == MOTOR_UpDown && !IN_READ(0))
-      {
-          MotorCurStepsU[ch] = 0;
-          MotorCurStepsSub[ch] = 0;
-      }
       if (ch == MOTOR_GripperMove && !IN_READ(5))
-      {
-          MotorCurStepsU[ch] = 0;
-          MotorCurStepsSub[ch] = 0;
-      }
-      if (ch == MOTOR_FBack && !IN_READ(1))
       {
           MotorCurStepsU[ch] = 0;
           MotorCurStepsSub[ch] = 0;
@@ -723,9 +715,9 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
      * 限位直达模式：targetSteps==0 向原点限位，targetSteps==0xFFFF 向远端限位
      * 升降电机  cur_dir=0 上升→上限位 IN_READ(0)，只有原点限位，不支持 0xFFFF
      * 夹爪电机  cur_dir=0→IN_READ(5)  cur_dir=1→IN_READ(6)
-     * 进退电机  cur_dir=0→IN_READ(1)  cur_dir=1→IN_READ(2)
+     * 进退电机  targetSteps==0 走正常步数控制回零，不走限位直达
      * ============================================================ */
-    if (g_motorStepsCtl[ch].targetSteps == 0 ||
+    if ((g_motorStepsCtl[ch].targetSteps == 0 && ch != MOTOR_FBack) ||
         (g_motorStepsCtl[ch].targetSteps == 0xFFFFu && ch != MOTOR_UpDown))
     {
         uint8_t target_dir = (g_motorStepsCtl[ch].targetSteps == 0) ? 0u : 1u;
