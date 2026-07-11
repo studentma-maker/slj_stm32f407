@@ -204,16 +204,16 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 if(sp_cmd == 0)
                 {
                     /* 急停：硬件停止，清除运动状态，保留PU目标值 */
-                    SMD_PWM_Stop((SMD_Channel)i);
-					SMD_PU_DATA[i] 						  = 1u;
-                    smd_freq_gradient[i].v_c              = 0.0f;
-                    smd_freq_gradient[i].v_n              = 0.0f;
-                    smd_freq_gradient[i].a_c              = 0.0f;
-                    smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
-                    smd_freq_gradient[i].is_running       = 0;
-                    /* 注意：SMD_PU_DATA[i] 和对应寄存器保留不变。
-                     * 下次向 PU 寄存器写入任意值，或重启 SetFreqGradient，
-                     * 电机将从 0 重新加速到目标频率。 */
+                    
+                     
+                        SMD_PWM_Stop((SMD_Channel)i);
+                        SMD_PU_DATA[i] = 1u;
+                        smd_freq_gradient[i].v_c              = 0.0f;
+                        smd_freq_gradient[i].v_n              = 0.0f;
+                        smd_freq_gradient[i].a_c              = 0.0f;
+                        smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
+                        smd_freq_gradient[i].is_running       = 0;
+                     
                 }
                 else
                 {
@@ -235,13 +235,15 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 uint16_t s_cmd = _mbs->regHoldingBuf[STOP_ALL_MOTOR_ADDR];
                 if(s_cmd == 1)
                 {
-                    SMD_PWM_Stop((SMD_Channel)i);
-					SMD_PU_DATA[i] 						  = 1u;
-                    smd_freq_gradient[i].v_c              = 0.0f;
-                    smd_freq_gradient[i].v_n              = 0.0f;
-                    smd_freq_gradient[i].a_c              = 0.0f;
-                    smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
-                    smd_freq_gradient[i].is_running       = 0;
+                    
+                     
+                        SMD_PWM_Stop((SMD_Channel)i);
+                        SMD_PU_DATA[i] = 1u;
+                        smd_freq_gradient[i].v_c              = 0.0f;
+                        smd_freq_gradient[i].v_n              = 0.0f;
+                        smd_freq_gradient[i].a_c              = 0.0f;
+                        smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
+                        smd_freq_gradient[i].is_running       = 0;
                 }
             }
         }
