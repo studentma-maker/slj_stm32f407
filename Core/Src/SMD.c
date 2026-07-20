@@ -856,7 +856,7 @@ static void SMD_SysToOrigin(void)
               g_sysToOrigin++;
               return;
           case waitPressUP:
-              if ((!IN_READ(3) && !IN_READ(4)) || !IN_READ(5))
+              if ((!IN_READ(3) && !IN_READ(4) && IN_READ(19)/*急停*/) || !IN_READ(5))
               {
                   g_sysToOrigin++;
               }

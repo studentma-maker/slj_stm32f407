@@ -218,16 +218,18 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                         smd_freq_gradient[i].is_running       = 0;
                      
                 }
-                else
+                else if (sp_cmd > 1)
                 {
-                    /* 直接跳变到指定频率（限幅），清零残留加速度 */
-					// 暂时去掉 跳到指定速度 只有急停，写入其他值无效
-                    //uint16_t target = sp_cmd;
-                    //if(target < (uint16_t)SMD_PWM_FREQ_MIN) target = (uint16_t)SMD_PWM_FREQ_MIN;
-                    //if(target > (uint16_t)SMD_PWM_FREQ_MAX) target = (uint16_t)SMD_PWM_FREQ_MAX;
-                    //SMD_PWM_SetFreq((SMD_Channel)i, target);
-                    //smd_freq_gradient[i].a_c = 0.0f; // 消除跳变前残留加速度
-                    /* v_c 已在 SMD_PWM_SetFreq 内同步为 target，后续PU渐变以此为起点 */
+                    /* 直接跳变到指定频率（限幅），不经过S曲线加减速 */
+                    uint16_t target = sp_cmd;
+                    if (target < (uint16_t)SMD_PWM_FREQ_MIN) target = (uint16_t)SMD_PWM_FREQ_MIN;
+                    if (target > (uint16_t)SMD_PWM_FREQ_MAX) target = (uint16_t)SMD_PWM_FREQ_MAX;
+                    SMD_PWM_SetFreq((SMD_Channel)i, target);
+                    smd_freq_gradient[i].v_c  = (float)target;
+                    smd_freq_gradient[i].v_n  = (float)target;
+                    smd_freq_gradient[i].a_c  = 0.0f;
+                    smd_freq_gradient[i].is_running = 0;
+                    SMD_PU_DATA[i] = target;
                 }
             }
             /* ---写入全部急停寄存器,电机全部停止---

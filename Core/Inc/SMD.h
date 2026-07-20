@@ -33,8 +33,8 @@
  *        单位 Hz/s，通过 Modbus SMD_ACC_DATA[] 读写。
  */
 #define SMD_ACC_MAX_MIN         1u      // 最大加速度下限 Hz/s（防止为0导致永远不动）
-#define SMD_ACC_MAX_MAX         4000u  // 最大加速度上限 Hz/s（可根据电机实际调整）
-#define SMD_ACC_MAX_DEFAULT			1000u
+#define SMD_ACC_MAX_MAX         8000u  // 最大加速度上限 Hz/s（可根据电机实际调整）
+#define SMD_ACC_MAX_DEFAULT	    1000u
 /**
  * @brief S曲线 Jerk 参数范围
  * @note  Jerk 含义为"加速度的变化率"（Hz/s²），决定S曲线的"柔和程度"。
@@ -42,7 +42,7 @@
  *        单位 Hz/s²，通过 Modbus SMD_JERK_DATA[] 读写。
  */
 #define SMD_JERK_MIN            1u      // Jerk下限 Hz/s²（防止为0导致除零）
-#define SMD_JERK_MAX            4000u 	// Jerk上限 Hz/s²（可根据实际调整）
+#define SMD_JERK_MAX            15000u 	// Jerk上限 Hz/s²（可根据实际调整）
 #define SMD_JERK_DEFAULT        2000u   // 默认Jerk Hz/s²（上电初始值）
 
 /* TIM10 中断周期 */
