@@ -98,11 +98,11 @@ int main(void)
     MX_TIM7_Init();
     /* USER CODE BEGIN 2 */
     mbsUSB.slaveAddr = 1;
-    mbsUSB.baudRate = 19200;
+    mbsUSB.baudRate = 115200;
     mbsUSB.parity = 0;
 
     mbsESP.slaveAddr = 1;
-    mbsESP.baudRate = 19200;
+    mbsESP.baudRate = 115200;
     mbsESP.parity = 0;
 
     mbsSTM.slaveAddr = 1;
