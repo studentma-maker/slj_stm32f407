@@ -54,13 +54,12 @@ void mbs_hook_updata_holding(mbs *_mbs)
             _mbs->regHoldingBuf[OUT_1_ADDR + i] = OUT_READ(i);
         }
         
-        for(i = 0; i < 16; i++)
+        for(i = 0; i < 6; i++)
         {
             _mbs->regHoldingBuf[ADC_1_ADDR + i] = mbsSTM.regHoldingBuf[i];
         }
 
         _mbs->regHoldingBuf[GRIPPER_CUR_STEPS] = MotorCurStepsU[MOTOR_GripperMove];
-        _mbs->regHoldingBuf[UPDOWN_CUR_STEPS]  = MotorCurStepsU[MOTOR_UpDown];
         _mbs->regHoldingBuf[FBACK_CUR_STEPS]   = MotorCurStepsU[MOTOR_FBack];
         _mbs->regHoldingBuf[SYS_TO_ORIGIN] = g_sysToOrigin;
     }
@@ -105,11 +104,6 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 g_motorStepsCtl[MOTOR_GripperMove].targetSteps = _mbs->regHoldingBuf[GRIPPER_TARGET_STEPS];
                 g_motorStepsCtl[MOTOR_GripperMove].is_running  = 1;
                 g_motorStepsCtl[MOTOR_GripperMove].braking     = 0;
-                return;
-            case UPDOWN_TARGET_STEPS:
-                g_motorStepsCtl[MOTOR_UpDown].targetSteps = _mbs->regHoldingBuf[UPDOWN_TARGET_STEPS];
-                g_motorStepsCtl[MOTOR_UpDown].is_running  = 1;
-                g_motorStepsCtl[MOTOR_UpDown].braking     = 0;
                 return;
             case FBACK_TARGET_STEPS:
                 if (_val != MotorCurStepsU[MOTOR_FBack])

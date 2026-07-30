@@ -136,41 +136,41 @@
 #define EC_4_ADDR                  104       // 编码器值
 #define EC_5_ADDR                  105       // 编码器值
 
-#define IN_1_ADDR                  106        // 输入信号
-#define IN_2_ADDR                  107        // 输入信号
-#define IN_3_ADDR                  108        // 输入信号
-#define IN_4_ADDR                  109        // 输入信号
-#define IN_5_ADDR                  110        // 输入信号
-#define IN_6_ADDR                  111        // 输入信号
-#define IN_7_ADDR                  112        // 输入信号
-#define IN_8_ADDR                  113        // 输入信号
-#define IN_9_ADDR                  114        // 输入信号
-#define IN_10_ADDR                 115        // 输入信号
-#define IN_11_ADDR                 116        // 输入信号
-#define IN_12_ADDR                 117        // 输入信号
-#define IN_13_ADDR                 118        // 输入信号
-#define IN_14_ADDR                 119        // 输入信号
-#define IN_15_ADDR                 120        // 输入信号
-#define IN_16_ADDR                 121        // 输入信号
-#define IN_17_ADDR                 122        // 输入信号
-#define IN_18_ADDR                 123        // 输入信号
-#define IN_19_ADDR                 124        // 输入信号
-#define IN_20_ADDR                 125        // 输入信号
+#define ADC_1_ADDR                 106       // ADC值
+#define ADC_2_ADDR                 107       // ADC值
+#define ADC_3_ADDR                 108       // ADC值
+#define ADC_4_ADDR                 109       // ADC值
+#define ADC_5_ADDR                 110       // ADC值
+#define ADC_6_ADDR                 111       // ADC值
 
-#define ADC_1_ADDR                 126       // ADC值
-#define ADC_2_ADDR                 127       // ADC值
-#define ADC_3_ADDR                 128       // ADC值
-#define ADC_4_ADDR                 129       // ADC值
-#define ADC_5_ADDR                 130       // ADC值
-#define ADC_6_ADDR                 131       // ADC值
+#define IN_1_ADDR                  112        // 输入信号
+#define IN_2_ADDR                  113        // 输入信号
+#define IN_3_ADDR                  114        // 输入信号
+#define IN_4_ADDR                  115        // 输入信号
+#define IN_5_ADDR                  116        // 输入信号
+#define IN_6_ADDR                  117        // 输入信号
+#define IN_7_ADDR                  118        // 输入信号
+#define IN_8_ADDR                  119        // 输入信号
+#define IN_9_ADDR                  120        // 输入信号
+#define IN_10_ADDR                 121        // 输入信号
+#define IN_11_ADDR                 122        // 输入信号
+#define IN_12_ADDR                 123        // 输入信号
+#define IN_13_ADDR                 124        // 输入信号
+#define IN_14_ADDR                 125        // 输入信号
+#define IN_15_ADDR                 126        // 输入信号
+#define IN_16_ADDR                 127        // 输入信号
+#define IN_17_ADDR                 128        // 输入信号
+#define IN_18_ADDR                 129        // 输入信号
+#define IN_19_ADDR                 130        // 输入信号
+#define IN_20_ADDR                 131        // 输入信号
+
 #define GRIPPER_CUR_STEPS          132       // 夹爪当前步数
 #define SYS_TO_ORIGIN              133       // 系统初始化状态
-#define UPDOWN_CUR_STEPS           134       // 升降电机当前步数
-#define FBACK_CUR_STEPS            135       // 进退电机当前步数
+#define FBACK_CUR_STEPS            134       // 进退电机当前步数
 
+
+#define FBACK_TARGET_STEPS         197       // 进退电机目标步数
 #define GRIPPER_TARGET_STEPS       198       // 夹爪目标步数
-#define UPDOWN_TARGET_STEPS        197       // 升降电机目标步数
-#define FBACK_TARGET_STEPS         196       // 进退电机目标步数
 #define STOP_ALL_MOTOR_ADDR        (REG_HOLDING_NREGS - 1) // stop all motor
 
 /**********************************************************************************************************

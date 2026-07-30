@@ -34,7 +34,7 @@
  */
 #define SMD_ACC_MAX_MIN         1u      // 最大加速度下限 Hz/s（防止为0导致永远不动）
 #define SMD_ACC_MAX_MAX         8000u  // 最大加速度上限 Hz/s（可根据电机实际调整）
-#define SMD_ACC_MAX_DEFAULT	    1000u
+#define SMD_ACC_MAX_DEFAULT	    4000u
 /**
  * @brief S曲线 Jerk 参数范围
  * @note  Jerk 含义为"加速度的变化率"（Hz/s²），决定S曲线的"柔和程度"。
@@ -43,11 +43,12 @@
  */
 #define SMD_JERK_MIN            1u      // Jerk下限 Hz/s²（防止为0导致除零）
 #define SMD_JERK_MAX            15000u 	// Jerk上限 Hz/s²（可根据实际调整）
-#define SMD_JERK_DEFAULT        2000u   // 默认Jerk Hz/s²（上电初始值）
+#define SMD_JERK_DEFAULT        8000u   // 默认Jerk Hz/s²（上电初始值）
 
 /* TIM10 中断周期 */
 #define SMD_UPDATE_DT_s           0.001f  // 1ms = 0.001s
 #define SMD_UPDATE_DT_ms          1u  	  // 1ms
+
 
 
 /* 兼容旧接口的渐变参数范围（SMD_PWM_SetFreqGradient speed参数） */
@@ -97,7 +98,8 @@ typedef struct
     float    v_c;               // 当前速度（浮点）
     float    a_c;               // 当前加速度
     float    v_n;               // 目标速度
-    float    jerk;              // 当前jerk值
+    float    jerk;              // 当前jerk值（运行时动态值）
+    float    acc_max;           // 本次运动的加速度上限（Hz/s），由调用方传入
 
     /* --- 方向切换 --- */
     uint8_t  dir_change;        // 1=需要换向
@@ -148,8 +150,8 @@ extern GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX];   // 各通道步数控制
  *         （GRIPPER_MOVE_MAXPU 保留原名不变，即 DR=0 时的速度，
  *          避免影响其他文件中可能存在的引用。）
  */
-#define GRIPPER_MOVE_MAXPU        2000u  // 夹爪 DR=0（夹料方向）
-#define GRIPPER_MOVE_MAXPU_DIR1   3500u  // 夹爪 DR=1（空载方向，更快）
+#define GRIPPER_MOVE_MAXPU        2500u  // 夹爪 DR=0（夹料方向）
+#define GRIPPER_MOVE_MAXPU_DIR1   4000u  // 夹爪 DR=1（空载方向，更快）
 #define UPDOWN_MOVE_MAXPU      2000u
 #define FBACK_MOVE_MAXPU       2000u
 typedef enum

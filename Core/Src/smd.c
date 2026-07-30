@@ -63,19 +63,20 @@ GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX] = {
 /**
  * @brief  8路PWM通道的S曲线运动状态
  * @note   v_c/v_n 单位 Hz（浮点），a_c 单位 Hz/s，jerk 字段为运行时动态值
- *         jerk 的初始值和用户设定值由 SMD_JERK_DATA[] 管理，
- *         中断每次迭代从 SMD_JERK_DATA[ch] 取最新值，无需手动同步结构体。
+ *         acc_max / jerk 的取值规则：
+ *         - 步数控制（g_motorStepsCtl[ch].is_running）：使用 SMD_ACC_MAX_DEFAULT / SMD_JERK_DEFAULT
+ *         - 指令控制（Modbus 写 PU）：使用 SMD_ACC_DATA[ch] / SMD_JERK_DATA[ch]（用户可自定义）
  */
 SMD_Freq_Gradient smd_freq_gradient[SMD_CH_MAX] = {
-    /* v_c   a_c   v_n   jerk  dir_change dir_state  freq_int  is_running */
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH0
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH1
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH2
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH3
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH4
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH5
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH6
-    {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH7
+    /* v_c   a_c   v_n   jerk  acc_max dir_change dir_state  freq_int  is_running */
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH0
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH1
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH2
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH3
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH4
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH5
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH6
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, SMD_DIR_NORMAL, 1, 0},  // CH7
 };
 
 /* ========================= 通道 -> 定时器映射表 =========================
@@ -499,7 +500,8 @@ HAL_StatusTypeDef SMD_PWM_SetFreq(SMD_Channel ch, uint32_t freq)
  * @param  ch:          通道
  * @param  target_freq: 目标频率（Hz），范围 SMD_PWM_FREQ_MIN ~ SMD_PWM_FREQ_MAX
  * @param  accel:       最大加速度 ACC_MAX（Hz/s），范围 SMD_ACC_MAX_MIN ~ SMD_ACC_MAX_MAX
- *                      S曲线加速过程：a_c 以 SMD_JERK_DATA[ch] 从0增大到 accel，
+ *                      存入 m->acc_max，不覆盖 SMD_ACC_DATA[ch]。
+ *                      S曲线加速过程：a_c 以 jerk 从0增大到 accel，
  *                      到达 accel 后匀加速，接近目标时对称减速至0。
  */
 HAL_StatusTypeDef SMD_PWM_SetFreqGradient(SMD_Channel ch, uint32_t target_freq, uint32_t accel)
@@ -511,7 +513,7 @@ HAL_StatusTypeDef SMD_PWM_SetFreqGradient(SMD_Channel ch, uint32_t target_freq, 
     SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
 
     m->v_n        = (float)target_freq;
-    SMD_ACC_DATA[ch] = (uint16_t)accel; // 存储 ACC_MAX，中断里取用
+    m->acc_max    = (float)accel;  // 本次运动的加速度上限，不影响用户写入的 SMD_ACC_DATA
 
 	if(target_freq > SMD_PWM_FREQ_MIN) SMD_PWM_Start(ch);
     m->is_running = 1;
@@ -704,7 +706,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
             m->dir_state = SMD_DIR_NORMAL;
 
             SMD_PU_DATA[ch] = max_pu;
-            SMD_PWM_SetFreqGradient(ch, max_pu, SMD_ACC_DATA[ch]);
+            SMD_PWM_SetFreqGradient(ch, max_pu, SMD_ACC_MAX_DEFAULT);
         }
         return;
     }
@@ -773,8 +775,8 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
     int32_t brake_steps = SMD_CalcAccNeedSteps(
                   m->v_c, m->a_c,
                   (float)BRAKE_TARGET_HZ,
-                  (float)SMD_ACC_DATA[ch],
-                  (float)SMD_JERK_DATA[ch]);
+                  (float)SMD_ACC_MAX_DEFAULT,
+                  (float)SMD_JERK_DEFAULT);
     if (brake_steps < 0) brake_steps = 0;
 
     uint16_t freq_int;
@@ -795,7 +797,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
     if (freq_int != SMD_PU_DATA[ch])
     {
         SMD_PU_DATA[ch] = freq_int;
-        SMD_PWM_SetFreqGradient(ch, freq_int, SMD_ACC_DATA[ch]);
+        SMD_PWM_SetFreqGradient(ch, freq_int, SMD_ACC_MAX_DEFAULT);
 
         if (freq_int == BRAKE_TARGET_HZ)
             g_motorStepsCtl[ch].braking = 1;
@@ -842,7 +844,7 @@ static void SMD_SysToOrigin(void)
                       SMD_PU_DATA[MOTOR_GripperMove] = GripperToOriginPU;
                       SMD_PWM_SetFreqGradient((SMD_Channel)MOTOR_GripperMove,
                                               SMD_PU_DATA[MOTOR_GripperMove],
-                                              SMD_ACC_DATA[MOTOR_GripperMove]);
+                                              SMD_ACC_MAX_DEFAULT);
                   }
                   g_sysToOrigin++;
               }
@@ -875,8 +877,10 @@ static void SMD_RunSCurve(SMD_Channel ch, SMD_Freq_Gradient *m)
     float v_target  = m->v_n;
     float delta_v   = v_target - m->v_c;
     float abs_dv    = (delta_v >= 0.0f) ? delta_v : -delta_v;
-    float accel_max = (float)SMD_ACC_DATA[ch];
-    float jerk_val  = (float)SMD_JERK_DATA[ch];
+    float accel_max = m->acc_max;
+    float jerk_val  = g_motorStepsCtl[ch].is_running
+                        ? (float)SMD_JERK_DEFAULT
+                        : (float)SMD_JERK_DATA[ch];
 
     /* 到达目标 */
     if (abs_dv <= 0.5f)
@@ -1002,7 +1006,10 @@ static void SMD_ProcessChannel(SMD_Channel ch)
                     SMD_PWM_Start(ch);
                     return;
                 }
-                SMD_UpdateVelocity(m, delta_v, (float)SMD_ACC_DATA[ch], (float)SMD_JERK_DATA[ch]);
+                SMD_UpdateVelocity(m, delta_v, m->acc_max,
+                                   g_motorStepsCtl[ch].is_running
+                                     ? (float)SMD_JERK_DEFAULT
+                                     : (float)SMD_JERK_DATA[ch]);
                 m->v_c -= m->a_c * SMD_UPDATE_DT_s;
                 if (m->v_c < 0.0f) m->v_c = 0.0f;
                 uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
