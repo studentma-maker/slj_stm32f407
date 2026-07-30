@@ -78,6 +78,49 @@ SMD_Freq_Gradient smd_freq_gradient[SMD_CH_MAX] = {
     {0.0f, 0.0f, 0.0f, 0.0f,  0, SMD_DIR_NORMAL, 1, 0},  // CH7
 };
 
+/* ========================= 通道 -> 定时器映射表 =========================
+ * 把"哪个通道用哪个定时器/哪个比较通道/是否为互补输出"集中到一张表里，
+ * 避免 Init/Start/Stop/SetDuty/SetFreq/ApplyFreqToHW 里各写一遍8路的
+ * switch-case（原逻辑完全不变，只是不再重复7次）。
+ * is_complementary=1 的通道（CH3=TIM8, CH6=TIM1）需要用 HAL_TIMEx_PWMN_xxx，
+ * 其余通道用普通的 HAL_TIM_PWM_xxx。
+ */
+typedef struct
+{
+    TIM_HandleTypeDef *handle;           // 对应的 htimX_smd 句柄地址
+    TIM_TypeDef        *instance;        // 对应的 TIMx 外设实例
+    uint32_t            tim_channel;     // TIM_CHANNEL_x
+    uint8_t             is_complementary;// 1=需要用 PWMN（互补通道）接口
+} SMD_TimerMap;
+
+static const SMD_TimerMap smd_timer_map[SMD_CH_MAX] =
+{
+    /* handle          instance  channel         is_complementary */
+    { &htim2_smd,  TIM2,  TIM_CHANNEL_2, 0 },  // CH0 - PA1
+    { &htim9_smd,  TIM9,  TIM_CHANNEL_1, 0 },  // CH1 - PA2
+    { &htim5_smd,  TIM5,  TIM_CHANNEL_4, 0 },  // CH2 - PA3
+    { &htim8_smd,  TIM8,  TIM_CHANNEL_1, 1 },  // CH3 - PA5 (TIM8_CH1N)
+    { &htim13_smd, TIM13, TIM_CHANNEL_1, 0 },  // CH4 - PA6
+    { &htim14_smd, TIM14, TIM_CHANNEL_1, 0 },  // CH5 - PA7
+    { &htim1_smd,  TIM1,  TIM_CHANNEL_2, 1 },  // CH6 - PB0 (TIM1_CH2N)
+    { &htim3_smd,  TIM3,  TIM_CHANNEL_4, 0 },  // CH7 - PB1
+};
+
+/* ========================= 内部函数前置声明 ========================= */
+static HAL_StatusTypeDef SMD_Init_HighTimer  (TIM_HandleTypeDef *htim, uint32_t psc, uint32_t arr, uint32_t tim_channel);
+static HAL_StatusTypeDef SMD_Init_NormalTimer(TIM_HandleTypeDef *htim, uint32_t psc, uint32_t arr, uint32_t tim_channel);
+static void     SMD_Calc_PSC_ARR    (uint32_t freq, uint32_t *psc, uint32_t *arr, int ch);
+static void     SMD_AccumulateSteps (SMD_Channel ch, uint32_t freq_int);
+static void     SMD_ApplyFreqToHW   (SMD_Channel ch, uint32_t freq_int);
+static void     SMD_UpdateVelocity  (SMD_Freq_Gradient *m, float delta_v, float accel_max, float jerk);
+static uint8_t  SMD_IsLimited       (int ch, uint8_t cur_dir, SMD_Freq_Gradient *m);
+static uint16_t MotorStepsMaxPU     (SMD_Channel ch, uint8_t dir);
+static void     SMD_MotorStepsCtl   (SMD_Channel ch);
+static void     SMD_SysToOrigin     (void);
+static void     SMD_ProcessChannel  (SMD_Channel ch);
+static void     SMD_RunSCurve       (SMD_Channel ch, SMD_Freq_Gradient *m);
+static void     SMD_CheckRelayMotorLimit(void);
+
 /* ========================= HAL底层GPIO初始化回调 ========================= */
 void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* tim_pwmHandle)
 {
@@ -281,61 +324,18 @@ static void SMD_AccumulateSteps(SMD_Channel ch, uint32_t freq_int)
  */
 static void SMD_ApplyFreqToHW(SMD_Channel ch, uint32_t freq_int)
 {
+    if (ch >= SMD_CH_MAX) return;
+
     uint32_t psc, arr;
     SMD_Calc_PSC_ARR(freq_int, &psc, &arr, (int)ch);
 
-    /* 直接写寄存器，避免在中断内调用完整HAL_TIM_PWM_Init带来的开销 */
-    switch (ch)
-    {
-        case SMD_CH0:
-            htim2_smd.Instance->PSC = psc;
-            htim2_smd.Instance->ARR = arr;
-            htim2_smd.Instance->CCR2 = arr / 2;   // 保持50%占空比
-            //htim2_smd.Instance->EGR  = TIM_EGR_UG; // 立即更新PSC生效
-            break;
-        case SMD_CH1:
-            htim9_smd.Instance->PSC = psc;
-            htim9_smd.Instance->ARR = arr;
-            htim9_smd.Instance->CCR1 = arr / 2;
-            //htim9_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        case SMD_CH2:
-            htim5_smd.Instance->PSC = psc;
-            htim5_smd.Instance->ARR = arr;
-            htim5_smd.Instance->CCR4 = arr / 2;
-            //htim5_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        case SMD_CH3:
-            htim8_smd.Instance->PSC = psc;
-            htim8_smd.Instance->ARR = arr;
-            htim8_smd.Instance->CCR1 = arr / 2;
-            //htim8_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        case SMD_CH4:
-            htim13_smd.Instance->PSC = psc;
-            htim13_smd.Instance->ARR = arr;
-            htim13_smd.Instance->CCR1 = arr / 2;
-            //htim13_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        case SMD_CH5:
-            htim14_smd.Instance->PSC = psc;
-            htim14_smd.Instance->ARR = arr;
-            htim14_smd.Instance->CCR1 = arr / 2;
-            break;
-        case SMD_CH6:
-            htim1_smd.Instance->PSC = psc;
-            htim1_smd.Instance->ARR = arr;
-            htim1_smd.Instance->CCR2 = arr / 2;
-            //htim1_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        case SMD_CH7:
-            htim3_smd.Instance->PSC = psc;
-            htim3_smd.Instance->ARR = arr;
-            htim3_smd.Instance->CCR4 = arr / 2;
-            //htim3_smd.Instance->EGR  = TIM_EGR_UG;
-            break;
-        default: break;
-    }
+    /* 直接写寄存器，避免在中断内调用完整HAL_TIM_PWM_Init带来的开销。
+     * 注意：不主动置位 EGR(UG) 强制更新，PSC/ARR/CCR 都走影子寄存器，
+     * 在当前周期结束时自动生效，不会产生毛刺。 */
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    t->handle->Instance->PSC = psc;
+    t->handle->Instance->ARR = arr;
+    __HAL_TIM_SET_COMPARE(t->handle, t->tim_channel, arr / 2);  // 保持50%占空比
 
     smd_freq_gradient[ch].current_freq_int = freq_int;
     if (ch == MOTOR_GripperMove || ch == MOTOR_UpDown || ch == MOTOR_FBack)
@@ -385,22 +385,16 @@ HAL_StatusTypeDef SMD_PWM_Init(SMD_Channel ch)
 {
     if (ch >= SMD_CH_MAX) return HAL_ERROR;
 
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    t->handle->Instance = t->instance;
+
     uint32_t psc, arr;
     /* 初始化时以1Hz计算PSC，后续由中断动态调频 */
     SMD_Calc_PSC_ARR(1, &psc, &arr, (int)ch);
 
-    switch (ch)
-    {
-        case SMD_CH0: htim2_smd.Instance  = TIM2;  return SMD_Init_NormalTimer(&htim2_smd,  psc, arr, TIM_CHANNEL_2);
-        case SMD_CH1: htim9_smd.Instance  = TIM9;  return SMD_Init_NormalTimer(&htim9_smd,  psc, arr, TIM_CHANNEL_1);
-        case SMD_CH2: htim5_smd.Instance  = TIM5;  return SMD_Init_NormalTimer(&htim5_smd,  psc, arr, TIM_CHANNEL_4);
-        case SMD_CH3: htim8_smd.Instance  = TIM8;  return SMD_Init_HighTimer  (&htim8_smd,  psc, arr, TIM_CHANNEL_1);
-        case SMD_CH4: htim13_smd.Instance = TIM13; return SMD_Init_NormalTimer(&htim13_smd, psc, arr, TIM_CHANNEL_1);
-        case SMD_CH5: htim14_smd.Instance = TIM14; return SMD_Init_NormalTimer(&htim14_smd, psc, arr, TIM_CHANNEL_1);
-        case SMD_CH6: htim1_smd.Instance  = TIM1;  return SMD_Init_HighTimer  (&htim1_smd,  psc, arr, TIM_CHANNEL_2);
-        case SMD_CH7: htim3_smd.Instance  = TIM3;  return SMD_Init_NormalTimer(&htim3_smd,  psc, arr, TIM_CHANNEL_4);
-        default:      return HAL_ERROR;
-    }
+    return t->is_complementary
+               ? SMD_Init_HighTimer  (t->handle, psc, arr, t->tim_channel)
+               : SMD_Init_NormalTimer(t->handle, psc, arr, t->tim_channel);
 }
 
 HAL_StatusTypeDef SMD_PWM_InitAll(void)
@@ -425,34 +419,18 @@ HAL_StatusTypeDef SMD_PWM_InitAll(void)
 /* ========================= PWM启停 ========================= */
 HAL_StatusTypeDef SMD_PWM_Start(SMD_Channel ch)
 {
-    switch (ch)
-    {
-        case SMD_CH0: return HAL_TIM_PWM_Start(&htim2_smd,   TIM_CHANNEL_2);
-        case SMD_CH1: return HAL_TIM_PWM_Start(&htim9_smd,   TIM_CHANNEL_1);
-        case SMD_CH2: return HAL_TIM_PWM_Start(&htim5_smd,   TIM_CHANNEL_4);
-        case SMD_CH3: return HAL_TIMEx_PWMN_Start(&htim8_smd,  TIM_CHANNEL_1);
-        case SMD_CH4: return HAL_TIM_PWM_Start(&htim13_smd,  TIM_CHANNEL_1);
-        case SMD_CH5: return HAL_TIM_PWM_Start(&htim14_smd,  TIM_CHANNEL_1);
-        case SMD_CH6: return HAL_TIMEx_PWMN_Start(&htim1_smd,  TIM_CHANNEL_2);
-        case SMD_CH7: return HAL_TIM_PWM_Start(&htim3_smd,   TIM_CHANNEL_4);
-        default:      return HAL_ERROR;
-    }
+    if (ch >= SMD_CH_MAX) return HAL_ERROR;
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    return t->is_complementary ? HAL_TIMEx_PWMN_Start(t->handle, t->tim_channel)
+                                : HAL_TIM_PWM_Start   (t->handle, t->tim_channel);
 }
 
 HAL_StatusTypeDef SMD_PWM_Stop(SMD_Channel ch)
 {
-    switch (ch)
-    {
-        case SMD_CH0: return HAL_TIM_PWM_Stop(&htim2_smd,   TIM_CHANNEL_2);
-        case SMD_CH1: return HAL_TIM_PWM_Stop(&htim9_smd,   TIM_CHANNEL_1);
-        case SMD_CH2: return HAL_TIM_PWM_Stop(&htim5_smd,   TIM_CHANNEL_4);
-        case SMD_CH3: return HAL_TIMEx_PWMN_Stop(&htim8_smd,  TIM_CHANNEL_1);
-        case SMD_CH4: return HAL_TIM_PWM_Stop(&htim13_smd,  TIM_CHANNEL_1);
-        case SMD_CH5: return HAL_TIM_PWM_Stop(&htim14_smd,  TIM_CHANNEL_1);
-        case SMD_CH6: return HAL_TIMEx_PWMN_Stop(&htim1_smd,  TIM_CHANNEL_2);
-        case SMD_CH7: return HAL_TIM_PWM_Stop(&htim3_smd,   TIM_CHANNEL_4);
-        default:      return HAL_ERROR;
-    }
+    if (ch >= SMD_CH_MAX) return HAL_ERROR;
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    return t->is_complementary ? HAL_TIMEx_PWMN_Stop(t->handle, t->tim_channel)
+                                : HAL_TIM_PWM_Stop   (t->handle, t->tim_channel);
 }
 
 HAL_StatusTypeDef SMD_PWM_StartAll(void)
@@ -479,18 +457,8 @@ void SMD_PWM_SetDuty(SMD_Channel ch, uint32_t duty)
     uint32_t max_duty = SMD_COUNTER_FREQ / smd_freq_gradient[ch].current_freq_int;
     if (duty > max_duty) duty = max_duty;
 
-    switch (ch)
-    {
-        case SMD_CH0: __HAL_TIM_SET_COMPARE(&htim2_smd,   TIM_CHANNEL_2, duty); break;
-        case SMD_CH1: __HAL_TIM_SET_COMPARE(&htim9_smd,   TIM_CHANNEL_1, duty); break;
-        case SMD_CH2: __HAL_TIM_SET_COMPARE(&htim5_smd,   TIM_CHANNEL_4, duty); break;
-        case SMD_CH3: __HAL_TIM_SET_COMPARE(&htim8_smd,   TIM_CHANNEL_1, duty); break;
-        case SMD_CH4: __HAL_TIM_SET_COMPARE(&htim13_smd,  TIM_CHANNEL_1, duty); break;
-        case SMD_CH5: __HAL_TIM_SET_COMPARE(&htim14_smd,  TIM_CHANNEL_1, duty); break;
-        case SMD_CH6: __HAL_TIM_SET_COMPARE(&htim1_smd,   TIM_CHANNEL_2, duty); break;
-        case SMD_CH7: __HAL_TIM_SET_COMPARE(&htim3_smd,   TIM_CHANNEL_4, duty); break;
-        default: break;
-    }
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    __HAL_TIM_SET_COMPARE(t->handle, t->tim_channel, duty);
 }
 
 void SMD_PWM_SetDutyPercent(SMD_Channel ch, float percent)
@@ -514,18 +482,10 @@ HAL_StatusTypeDef SMD_PWM_SetFreq(SMD_Channel ch, uint32_t freq)
     HAL_StatusTypeDef ret = SMD_PWM_Stop(ch);
     if (ret != HAL_OK) return ret;
 
-    switch (ch)
-    {
-        case SMD_CH0: htim2_smd.Init.Prescaler  = psc; htim2_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim2_smd);  break;
-        case SMD_CH1: htim9_smd.Init.Prescaler  = psc; htim9_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim9_smd);  break;
-        case SMD_CH2: htim5_smd.Init.Prescaler  = psc; htim5_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim5_smd);  break;
-        case SMD_CH3: htim8_smd.Init.Prescaler  = psc; htim8_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim8_smd);  break;
-        case SMD_CH4: htim13_smd.Init.Prescaler = psc; htim13_smd.Init.Period = arr; ret = HAL_TIM_PWM_Init(&htim13_smd); break;
-        case SMD_CH5: htim14_smd.Init.Prescaler = psc; htim14_smd.Init.Period = arr; ret = HAL_TIM_PWM_Init(&htim14_smd); break;
-        case SMD_CH6: htim1_smd.Init.Prescaler  = psc; htim1_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim1_smd);  break;
-        case SMD_CH7: htim3_smd.Init.Prescaler  = psc; htim3_smd.Init.Period  = arr; ret = HAL_TIM_PWM_Init(&htim3_smd);  break;
-        default: return HAL_ERROR;
-    }
+    const SMD_TimerMap *t = &smd_timer_map[ch];
+    t->handle->Init.Prescaler = psc;
+    t->handle->Init.Period    = arr;
+    ret = HAL_TIM_PWM_Init(t->handle);
     if (ret != HAL_OK) return ret;
 
     smd_freq_gradient[ch].current_freq_int = freq;
@@ -694,10 +654,21 @@ static uint8_t SMD_IsLimited(int ch,uint8_t cur_dir,SMD_Freq_Gradient *m)
     return hit;
 }
 
-static uint16_t MotorStepsMaxPU(SMD_Channel ch)
+/**
+ * @brief  步数控制的目标运行速度（Hz），按通道 + 运动方向查表
+ * @param  ch:  电机通道
+ * @param  dir: 该次运动对应的 DR 电平（0 或 1，与 SMD_DR_READ() 同一约定）
+ * @note   夹爪电机（MOTOR_GripperMove）区分方向：
+ *           dir=0：夹持物料运动，负载较大 → GRIPPER_MOVE_MAXPU（原速度2000Hz，不变）
+ *           dir=1：空载返回运动，无负载   → GRIPPER_MOVE_MAXPU_DIR1（更快，3000Hz）
+ *         其余通道（升降、进退）两个方向暂共用同一速度。
+ *         如果后续需要给其他通道也做方向区分，仿照 MOTOR_GripperMove 的写法
+ *         加一个 case、在 SMD.h 里加一对 _DIR0/_DIR1 宏即可。
+ */
+static uint16_t MotorStepsMaxPU(SMD_Channel ch, uint8_t dir)
 {
     switch (ch) {
-        case MOTOR_GripperMove: return GRIPPER_MOVE_MAXPU;
+        case MOTOR_GripperMove: return dir ? GRIPPER_MOVE_MAXPU_DIR1 : GRIPPER_MOVE_MAXPU;
         case MOTOR_UpDown:      return UPDOWN_MOVE_MAXPU;
         case MOTOR_FBack:       return FBACK_MOVE_MAXPU;
         default: return 0;
@@ -709,7 +680,6 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
 
     SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
     int32_t step_remain = (int32_t)g_motorStepsCtl[ch].targetSteps - (int32_t)MotorCurStepsU[ch];
-    uint16_t max_pu     = MotorStepsMaxPU(ch);
 
     /* ============================================================
      * 限位直达模式：targetSteps==0 向原点限位，targetSteps==0xFFFF 向远端限位
@@ -722,6 +692,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
     {
         uint8_t target_dir = (g_motorStepsCtl[ch].targetSteps == 0) ? 0u : 1u;
         if (ch == MOTOR_FBack) target_dir = 0u;  // FBack: DR=0时步数增加，远端限位也走0方向
+        uint16_t max_pu = MotorStepsMaxPU(ch, target_dir);  // 按目标方向取速度（夹爪两方向不同）
 
         if (SMD_DR_READ(ch) != target_dir || SMD_PU_DATA[ch] != max_pu || !m->is_running || m->dir_change)
         {
@@ -776,6 +747,7 @@ static void SMD_MotorStepsCtl(SMD_Channel ch)
 
     uint8_t need_dir = (step_remain > 0) ? 1u : 0u;
     if (ch == MOTOR_FBack) need_dir = !need_dir;  // FBack方向反逻辑：DR=0时步数增加
+    uint16_t max_pu = MotorStepsMaxPU(ch, need_dir);  // 按本次实际运行方向取速度（夹爪两方向不同）
 
     /* 换向处理 */
     if (!m->dir_change && m->dir_state == SMD_DIR_NORMAL)
@@ -892,23 +864,199 @@ static void SMD_SysToOrigin(void)
               break;
       }
 }
+/* ========================= 内部：S曲线正常加减速一步（每通道每1ms） ========================= */
+/**
+ * @brief  单个通道的"常规"S曲线迭代：把 v_c 向 v_n 推进一步并写入硬件
+ * @note   从原 TIM10 ISR 的循环体尾部搬出，逻辑与原来完全一致，只是变成了
+ *         一个独立函数，被 SMD_ProcessChannel() 在"不需要换向/不在限位"时调用。
+ */
+static void SMD_RunSCurve(SMD_Channel ch, SMD_Freq_Gradient *m)
+{
+    float v_target  = m->v_n;
+    float delta_v   = v_target - m->v_c;
+    float abs_dv    = (delta_v >= 0.0f) ? delta_v : -delta_v;
+    float accel_max = (float)SMD_ACC_DATA[ch];
+    float jerk_val  = (float)SMD_JERK_DATA[ch];
+
+    /* 到达目标 */
+    if (abs_dv <= 0.5f)
+    {
+        m->v_c = v_target;
+        m->a_c = 0.0f;
+
+        /* 目标为 SMD_PWM_FREQ_MIN（1Hz）表示"减速停止"语义：
+         * 停止 PWM 硬件输出，避免电机仍以 1Hz（1步/秒）低速蠕动。
+         * is_running 置 0，中断不再驱动此通道，直到下次写 PU 重新激活。 */
+        if (v_target <= (float)SMD_PWM_FREQ_MIN)
+        {
+            SMD_PWM_Stop(ch);
+            m->v_c        = 0.0f;
+            m->a_c        = 0.0f;
+            m->is_running = 0;
+            return;
+        }
+
+        uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
+        if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
+        if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
+        SMD_ApplyFreqToHW(ch, freq_int);
+        return;
+    }
+
+    /* S曲线：更新加速度 */
+    SMD_UpdateVelocity(m, abs_dv, accel_max, jerk_val);
+
+    /* 积分速度 */
+    if (delta_v > 0.0f)
+        m->v_c += m->a_c * SMD_UPDATE_DT_s;
+    else
+        m->v_c -= m->a_c * SMD_UPDATE_DT_s;
+
+    /* 边界限幅 */
+    if (m->v_c < (float)SMD_PWM_FREQ_MIN) m->v_c = (float)SMD_PWM_FREQ_MIN;
+    if (m->v_c > (float)SMD_PWM_FREQ_MAX) m->v_c = (float)SMD_PWM_FREQ_MAX;
+
+    /* 写入硬件 */
+    uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
+    if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
+    if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
+    SMD_ApplyFreqToHW(ch, freq_int);
+}
+
+/* ========================= 内部：单通道每1ms调度（换向 + 限位 + S曲线） ========================= */
+/**
+ * @brief  对一个通道执行一次1ms调度，从原 TIM10 ISR 的 for 循环体搬出。
+ *         原代码里每个分支的 `continue` 直接对应这里的 `return`（含义完全一致，
+ *         因为各通道之间互不依赖，提前结束这个函数等价于原来跳到下一个 ch）。
+ *
+ *  ┌─────────────────────────────────────────────────────────┐
+ *  │ 1. 检查换向标志 dir_change                               │
+ *  │    → 若需换向且 v_c != 0：先减速到0                      │
+ *  │    → 若需换向且 v_c ≈ 0 ：切换 DR 引脚，清除换向标志      │
+ *  │ 2. 检测限位（触发则急停并直接返回）                       │
+ *  │ 3. 未换向、未限位 → 调用 SMD_RunSCurve() 正常加减速       │
+ *  └─────────────────────────────────────────────────────────┘
+ */
+static void SMD_ProcessChannel(SMD_Channel ch)
+{
+    SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
+    if (!m->is_running) return;
+
+    /* ================================================================
+     * 分支A：v_c == 0，先换向再检测限位
+     * ================================================================ */
+    if (m->v_c <= 1.0f)
+    {
+        uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
+
+        /* A1. 直接切换方向引脚（无需减速） */
+        if (m->dir_change)
+        {
+            m->v_c        = 0.0f;
+            m->a_c        = 0.0f;
+            cur_dir       = !cur_dir;
+            SMD_DR(ch, cur_dir);
+            m->dir_change = 0;
+            m->dir_state  = SMD_DIR_NORMAL;
+            /* 不 return，继续往下做限位检测再进入S曲线 */
+        }
+
+        /* A2. 换向后（或本来就无换向）检测限位 */
+        if (SMD_IsLimited((int)ch, cur_dir, m))
+        {
+            m->dir_change = 0;
+            return;
+        }
+
+        /* A3. 无限位触发，进入S曲线加速（直接落入下方正常运动逻辑） */
+    }
+    /* ================================================================
+     * 分支B：v_c != 0，先检测限位再决定换向/S曲线
+     * ================================================================ */
+    else
+    {
+        uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
+        if (SMD_IsLimited((int)ch, cur_dir, m))
+        {
+            return;
+        }
+
+        /* 未触发限位，走换向减速或S曲线 */
+        if (m->dir_change)
+        {
+            if (m->dir_state == SMD_DIR_NORMAL)
+                m->dir_state = SMD_DIR_DECEL;
+
+            if (m->dir_state == SMD_DIR_DECEL)
+            {
+                float delta_v = m->v_c;
+                if (delta_v <= 1.0f)
+                {
+                    m->v_c = 0.0f;
+                    m->a_c = 0.0f;
+                    SMD_PWM_Stop(ch);
+                    uint8_t cur_dir2 = (uint8_t)SMD_DR_READ(ch);
+                    SMD_DR(ch, !cur_dir2);
+                    m->dir_state  = SMD_DIR_WAIT;
+                    m->dir_change = 0;
+                    SMD_PWM_Start(ch);
+                    return;
+                }
+                SMD_UpdateVelocity(m, delta_v, (float)SMD_ACC_DATA[ch], (float)SMD_JERK_DATA[ch]);
+                m->v_c -= m->a_c * SMD_UPDATE_DT_s;
+                if (m->v_c < 0.0f) m->v_c = 0.0f;
+                uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
+                if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
+                SMD_ApplyFreqToHW(ch, freq_int);
+                return;
+            }
+
+            if (m->dir_state == SMD_DIR_WAIT)
+            {
+                m->dir_state = SMD_DIR_NORMAL;
+                return;
+            }
+        }
+    }
+
+    /* ---- 未换向、未限位：走正常S曲线运动 ---- */
+    SMD_RunSCurve(ch, m);
+}
+
+/* ========================= 内部：继电器电机限位安全检测 ========================= */
+/**
+ * @brief  独立于8路步进电机之外的继电器电机（OUT12/13）限位保护
+ *         仅在电机运行时检测，停止状态不触发。逻辑原样从 ISR 尾部搬出。
+ */
+static void SMD_CheckRelayMotorLimit(void)
+{
+    if (!OUT_READ(RELAY_MOTOR_1) && !OUT_READ(RELAY_MOTOR_2)) return;
+
+    uint8_t cur_dir = OUT_READ(RELAY_MOTOR_1);  // OUT12=1→正转, OUT12=0→反转
+    uint8_t hit = (((!IN_READ(7) || !IN_READ(9)) && cur_dir) || (!IN_READ(8) && !cur_dir));
+    if (!IN_READ(19)) hit = 1;
+
+    if (hit)
+    {
+        OUT(RELAY_MOTOR_1, 0);
+        OUT(RELAY_MOTOR_2, 0);
+        mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1] = 0;
+        mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2] = 0;
+        mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1] = 0;
+        mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2] = 0;
+    }
+}
+
 /* ========================= TIM10 1ms中断服务函数（S曲线调度） ========================= */
 /**
  * @brief  TIM1更新/TIM10全局中断，1ms周期
  *
  * 移植自ESP32 ideal_motor_smctl_task()，去掉FreeRTOS，改为中断驱动。
- * 每1ms对每个通道执行一次S曲线迭代：
- *
- *  ┌─────────────────────────────────────────────────────────┐
- *  │ 1. 检查换向标志 dir_change                               │
- *  │    → 若需换向且 v_c != 0：强制 v_n = 0（先减速）         │
- *  │    → 若需换向且 v_c ≈ 0 ：切换 DR 引脚，清除换向标志      │
- *  │ 2. 计算剩余速差 delta_v = |v_n - v_c|                   │
- *  │ 3. 若已到达目标：v_c = v_n，停止加速度                   │
- *  │ 4. 调用 SMD_UpdateVelocity() 更新 a_c（S曲线核心）       │
- *  │ 5. 积分速度：v_c ± a_c * dt                             │
- *  │ 6. 边界限幅，写入硬件                                    │
- *  └─────────────────────────────────────────────────────────┘
+ * 每1ms依次：
+ *   1. 对每个通道调用 SMD_ProcessChannel()（换向/限位检测 + S曲线一步）
+ *   2. 对夹爪/升降/进退三个通道做步数控制决策 SMD_MotorStepsCtl()
+ *   3. 推进"回原点"状态机 SMD_SysToOrigin()
+ *   4. 继电器电机的独立限位保护 SMD_CheckRelayMotorLimit()
  */
 void TIM1_UP_TIM10_IRQHandler(void)
 {
@@ -918,162 +1066,12 @@ void TIM1_UP_TIM10_IRQHandler(void)
     num++;
 
     for (int ch = 0; ch < SMD_CH_MAX; ch++)
-    {
-        SMD_Freq_Gradient *m = &smd_freq_gradient[ch];
-
-        if (!m->is_running) continue;
-
-        /* ================================================================
-         * 分支A：v_c == 0，先换向再检测限位
-         * ================================================================ */
-        if (m->v_c <= 1.0f)
-        {
-            uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
-            /* A1. 直接切换方向引脚（无需减速） */
-            if (m->dir_change)
-            {
-                m->v_c        = 0.0f;
-                m->a_c        = 0.0f;
-                cur_dir       = !cur_dir;
-                SMD_DR(ch, cur_dir);
-                m->dir_change = 0;
-                m->dir_state  = SMD_DIR_NORMAL;
-                /* 不 continue，继续往下做限位检测再进入S曲线 */
-            }
-
-            /* A2. 换向后（或本来就无换向）检测限位 */
-            if(SMD_IsLimited(ch, cur_dir, m))
-            {
-                m->dir_change = 0;
-                continue;
-            }
-
-            /* A3. 无限位触发，进入S曲线加速（直接落入下方正常运动逻辑） */
-        }
-        /* ================================================================
-         * 分支B：v_c != 0，先检测限位再决定换向/S曲线
-         * ================================================================ */
-        else
-        {
-            uint8_t cur_dir = (uint8_t)SMD_DR_READ(ch);
-            if(SMD_IsLimited(ch, cur_dir, m))
-            {
-                continue;
-            }
-            /* 未触发限位，走换向减速或S曲线 */
-            if (m->dir_change)
-            {
-                if (m->dir_state == SMD_DIR_NORMAL)
-                    m->dir_state = SMD_DIR_DECEL;
-
-                if (m->dir_state == SMD_DIR_DECEL)
-                {
-                    float delta_v = m->v_c;
-                    if (delta_v <= 1.0f)
-                    {
-                        m->v_c = 0.0f;
-                        m->a_c = 0.0f;
-                        SMD_PWM_Stop((SMD_Channel)ch);
-                        uint8_t cur_dir2 = (uint8_t)SMD_DR_READ(ch);
-                        SMD_DR(ch, !cur_dir2);
-                        m->dir_state  = SMD_DIR_WAIT;
-                        m->dir_change = 0;
-                        SMD_PWM_Start((SMD_Channel)ch);
-                        continue;
-                    }
-                    SMD_UpdateVelocity(m, delta_v, (float)SMD_ACC_DATA[ch], (float)SMD_JERK_DATA[ch]);
-                    m->v_c -= m->a_c * SMD_UPDATE_DT_s;
-                    if (m->v_c < 0.0f) m->v_c = 0.0f;
-                    uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
-                    if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
-                    SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
-                    continue;
-                }
-
-                if (m->dir_state == SMD_DIR_WAIT)
-                {
-                    m->dir_state = SMD_DIR_NORMAL;
-                    continue;
-                }
-            }
-        }
-
-
-        /* ---- 2. 正常S曲线运动 ---- */
-        float v_target = m->v_n;
-        float delta_v  = v_target - m->v_c;
-        float abs_dv   = (delta_v >= 0.0f) ? delta_v : -delta_v;
-        float accel_max = (float)SMD_ACC_DATA[ch];
-        float jerk_val  = (float)SMD_JERK_DATA[ch];
-
-        /* 到达目标 */
-        if (abs_dv <= 0.5f)
-        {
-            m->v_c = v_target;
-            m->a_c = 0.0f;
-
-            /* 目标为 SMD_PWM_FREQ_MIN（1Hz）表示"减速停止"语义：
-             * 停止 PWM 硬件输出，避免电机仍以 1Hz（1步/秒）低速蠕动。
-             * is_running 置 0，中断不再驱动此通道，直到下次写 PU 重新激活。 */
-            if (v_target <= (float)SMD_PWM_FREQ_MIN)
-            {
-                SMD_PWM_Stop((SMD_Channel)ch);
-                m->v_c              = 0.0f;
-                m->a_c              = 0.0f;
-                m->is_running       = 0;
-                continue;
-            }
-
-            uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
-            if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
-            if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
-            SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
-            continue;
-        }
-
-        /* S曲线：更新加速度 */
-        SMD_UpdateVelocity(m, abs_dv, accel_max, jerk_val);
-
-        /* 积分速度 */
-        if (delta_v > 0.0f)
-            m->v_c += m->a_c * SMD_UPDATE_DT_s;
-        else
-            m->v_c -= m->a_c * SMD_UPDATE_DT_s;
-
-        /* 边界限幅 */
-        if (m->v_c < (float)SMD_PWM_FREQ_MIN) m->v_c = (float)SMD_PWM_FREQ_MIN;
-        if (m->v_c > (float)SMD_PWM_FREQ_MAX) m->v_c = (float)SMD_PWM_FREQ_MAX;
-
-        /* 写入硬件 */
-        uint32_t freq_int = (uint32_t)(m->v_c + 0.5f);
-        if (freq_int < SMD_PWM_FREQ_MIN) freq_int = SMD_PWM_FREQ_MIN;
-        if (freq_int > SMD_PWM_FREQ_MAX) freq_int = SMD_PWM_FREQ_MAX;
-        SMD_ApplyFreqToHW((SMD_Channel)ch, freq_int);
-    }
+        SMD_ProcessChannel((SMD_Channel)ch);
 
     SMD_MotorStepsCtl(MOTOR_GripperMove);
     SMD_MotorStepsCtl(MOTOR_UpDown);
     SMD_MotorStepsCtl(MOTOR_FBack);
     SMD_SysToOrigin();
 
-    /* ================================================================
-     * 继电器电机限位安全检测（独立于8路步进电机）
-     * 仅电机运行时检测，停止状态不触发
-     * ================================================================ */
-    if (OUT_READ(12) || OUT_READ(13))
-    {
-        uint8_t cur_dir = OUT_READ(12);  // OUT12=1→正转, OUT12=0→反转
-        uint8_t hit = 0;
-        hit = (((!IN_READ(7) || !IN_READ(9)) && cur_dir) || (!IN_READ(8) && !cur_dir));
-        if (!IN_READ(19)) hit = 1;
-        if (hit)
-        {
-            OUT(12, 0);
-            OUT(13, 0);
-            mbsUSB.regHoldingBuf[OUT_13_ADDR] = 0;
-            mbsUSB.regHoldingBuf[OUT_14_ADDR] = 0;
-            mbsESP.regHoldingBuf[OUT_13_ADDR] = 0;
-            mbsESP.regHoldingBuf[OUT_14_ADDR] = 0;
-        }
-    }
+    SMD_CheckRelayMotorLimit();
 }

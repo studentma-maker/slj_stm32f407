@@ -103,6 +103,7 @@
 #define SMD_8_JRK_ADDR             75       // Jerk控制
 #define SMD_8_SP_ADDR              76       // 实时速度（写0=急停，写非0无效）
 
+#define OUT_BASE_ADDR			   80
 #define OUT_1_ADDR                 80       // 输出信号
 #define OUT_2_ADDR                 81       // 输出信号
 #define OUT_3_ADDR                 82       // 输出信号
@@ -119,6 +120,9 @@
 #define OUT_14_ADDR                93       // 输出信号
 #define OUT_15_ADDR                94       // 输出信号
 #define OUT_16_ADDR                95       // 输出信号
+
+#define RELAY_MOTOR_1 14
+#define RELAY_MOTOR_2 15
 
 #define EC_CLEAR_1_ADDR            96       // 编码器清零
 #define EC_CLEAR_2_ADDR            97       // 编码器清零
