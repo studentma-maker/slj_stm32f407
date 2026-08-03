@@ -624,7 +624,10 @@ static uint8_t SMD_IsLimited(int ch,uint8_t cur_dir,SMD_Freq_Gradient *m)
           hit = ((!IN_READ(1) && !cur_dir) || (!IN_READ(2) && cur_dir));
           break;
       case MOTOR_GripperMove:
-          hit = ((!IN_READ(5) && !cur_dir) || (!IN_READ(6) && cur_dir));
+          hit = ((!IN_READ(5) && !cur_dir) || 
+		  		 (!IN_READ(6) && cur_dir) ||
+		  		 (IN_READ(3)) ||
+		  		 (!OUT_READ(RELAY_1)));
           break;
       default:
           break;

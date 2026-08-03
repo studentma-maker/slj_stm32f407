@@ -150,8 +150,8 @@ extern GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX];   // 各通道步数控制
  *         （GRIPPER_MOVE_MAXPU 保留原名不变，即 DR=0 时的速度，
  *          避免影响其他文件中可能存在的引用。）
  */
-#define GRIPPER_MOVE_MAXPU        2500u  // 夹爪 DR=0（夹料方向）
-#define GRIPPER_MOVE_MAXPU_DIR1   4000u  // 夹爪 DR=1（空载方向，更快）
+#define GRIPPER_MOVE_MAXPU        3000u  // 夹爪 DR=0（夹料方向）
+#define GRIPPER_MOVE_MAXPU_DIR1   4500u  // 夹爪 DR=1（空载方向，更快）
 #define UPDOWN_MOVE_MAXPU      2000u
 #define FBACK_MOVE_MAXPU       2000u
 typedef enum
