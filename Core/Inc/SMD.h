@@ -141,19 +141,8 @@ extern GripperStepsCtl_t g_motorStepsCtl[SMD_CH_MAX];   // 各通道步数控制
 #define BRAKE_TARGET_HZ         100u    // 刹车目标速度 Hz
 #define BRAKE_BUFFER            100u    // 巡航缓冲步数（100Hz × 1s）
 
-/**
- * @brief  步数控制目标速度（Hz），可按运动方向区分
- * @note   夹爪电机（MOTOR_GripperMove）区分方向：
- *           DR=0：夹持物料方向，负载较大 → 沿用原速度 2000Hz
- *           DR=1：空载返回方向，无物料   → 可提速至 3000Hz
- *         升降、进退电机目前两个方向共用同一速度，未做区分。
- *         （GRIPPER_MOVE_MAXPU 保留原名不变，即 DR=0 时的速度，
- *          避免影响其他文件中可能存在的引用。）
- */
-#define GRIPPER_MOVE_MAXPU        3000u  // 夹爪 DR=0（夹料方向）
-#define GRIPPER_MOVE_MAXPU_DIR1   4500u  // 夹爪 DR=1（空载方向，更快）
-#define UPDOWN_MOVE_MAXPU      2000u
-#define FBACK_MOVE_MAXPU       2000u
+/* 步数控制模式：最大脉冲频率使用各通道 SMD_PU_DATA[ch] + SMD_ACC_DATA[ch] + SMD_JERK_DATA[ch]，
+   不再使用硬编码宏，上位机通过 Modbus 寄存器自定义 */
 typedef enum
 {
     defaultset = 0,         //初始化继电器默认状态

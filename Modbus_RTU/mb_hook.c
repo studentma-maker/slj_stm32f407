@@ -33,15 +33,15 @@ void mbs_hook_updata_holding(mbs *_mbs)
     {
         for(i = 0; i < 8; i++)
         {
-            _mbs->regHoldingBuf[SMD_1_AM_ADDR  + i*10] = SMD_AM_READ(i);
-            _mbs->regHoldingBuf[SMD_1_EN_ADDR  + i*10] = SMD_EN_READ(i);
-            _mbs->regHoldingBuf[SMD_1_DR_ADDR  + i*10] = SMD_DR_READ(i);
-            _mbs->regHoldingBuf[SMD_1_PU_ADDR  + i*10] = SMD_PU_DATA[i];
-            _mbs->regHoldingBuf[SMD_1_ACC_ADDR + i*10] = SMD_ACC_DATA[i];
-            /* JRK：当前jerk设定值，主机可读写（偏移5） */
-            _mbs->regHoldingBuf[SMD_1_JRK_ADDR + i*10] = (uint16_t)(SMD_JERK_DATA[i] > 65535u ? 65535u : SMD_JERK_DATA[i]);
-            /* SP：实时速度，主机可读取当前运行频率（偏移6） */
-            _mbs->regHoldingBuf[SMD_1_SP_ADDR  + i*10] = (uint16_t)smd_freq_gradient[i].current_freq_int;
+            _mbs->regHoldingBuf[SMD_1_AM_ADDR   + i*10] = SMD_AM_READ(i);
+            _mbs->regHoldingBuf[SMD_1_DR_ADDR   + i*10] = SMD_DR_READ(i);
+            _mbs->regHoldingBuf[SMD_1_ACC_ADDR  + i*10] = SMD_ACC_DATA[i];
+            _mbs->regHoldingBuf[SMD_1_JRK_ADDR  + i*10] = (uint16_t)(SMD_JERK_DATA[i] > 65535u ? 65535u : SMD_JERK_DATA[i]);
+            /* STEP：步数控制触发寄存器（只写，回读始终为 0） */
+            _mbs->regHoldingBuf[SMD_1_STEP_ADDR + i*10] = 0;
+            _mbs->regHoldingBuf[SMD_1_PU_ADDR   + i*10] = SMD_PU_DATA[i];
+            /* SP：实时速度，主机可读取当前运行频率 */
+            _mbs->regHoldingBuf[SMD_1_SP_ADDR   + i*10] = (uint16_t)smd_freq_gradient[i].current_freq_int;
         }
         
         for(i = 0; i < 20; i++)
@@ -77,14 +77,14 @@ void mbs_hook_updata_holding(mbs *_mbs)
 **                      :   _val: 写入的值
 ** Returned value       :   无
 **
-** 寄存器写入行为说明：
+** 寄存器写入行为说明（v2.0 步数控制重构）：
 **
-**  EN  (偏移1) ：直接控制使能 GPIO
-**  DR  (偏移2) ：设置 dir_change 标志，中断里先减速到0，再切换 GPIO，再加速（S曲线换向保护）
-**  PU  (偏移3) ：更新目标频率，重新启动 S 曲线渐变
-**  ACC (偏移4) ：更新最大加速度，重新启动 S 曲线渐变
-**  JRK (偏移5) ：更新本通道 jerk 值（Hz/s²），写 0 自动恢复默认值 SMD_JERK_DEFAULT
-**  SP  (偏移6) ：写 0 = 急停（立即停止PWM，清除运动状态）；写 N>0 = 直接跳变到 N Hz（绕过S曲线）
+**  DR   (偏移1) ：设置 dir_change 标志（S曲线换向保护），步数模式下忽略
+**  ACC  (偏移2) ：更新最大加速度，所有模式下均可写入，限幅 SMD_ACC_MAX_MIN~MAX
+**  JRK  (偏移3) ：更新 jerk 值（Hz/s²），写 0 自动恢复 SMD_JERK_DEFAULT
+**  PU   (偏移4) ：非步数模式→启动S曲线；步数模式→更新最大脉冲频率
+**  STEP (偏移5) ：写入目标步数→进入步数模式
+**  SP   (偏移6) ：写 0=急停；写 N>0=直接跳变到 N Hz
 **
 ***********************************************************************************************************/
 void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
@@ -98,55 +98,19 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
 
     if(_mbs == &mbsUSB || _mbs == &mbsESP)
     {
-        switch(_reg)
-        {
-            case GRIPPER_TARGET_STEPS:
-                g_motorStepsCtl[MOTOR_GripperMove].targetSteps = _mbs->regHoldingBuf[GRIPPER_TARGET_STEPS];
-                g_motorStepsCtl[MOTOR_GripperMove].is_running  = 1;
-                g_motorStepsCtl[MOTOR_GripperMove].braking     = 0;
-                return;
-            case FBACK_TARGET_STEPS:
-                if (_val != MotorCurStepsU[MOTOR_FBack])
-                {
-                    g_motorStepsCtl[MOTOR_FBack].targetSteps = _val;
-                    g_motorStepsCtl[MOTOR_FBack].is_running  = 1;
-                    g_motorStepsCtl[MOTOR_FBack].braking     = 0;
-                }
-                return;
-            default: break;
-        }
         for(i = 0; i < 8; i++)
         {
-            if(g_motorStepsCtl[i].is_running) continue;
-        	/* --- 一次性写入多个寄存器的值，顺序要求：先jerk 和acc_max 最后是pu --- */
-            /* --- 使能控制 --- */
-            if(_mbs->regHoldingBuf[SMD_1_EN_ADDR + i*10] != SMD_EN_READ(i))
+            /* --- 方向控制（偏移1）：步数模式下忽略，方向由步数差自动决定 --- */
+            if(!g_motorStepsCtl[i].is_running)
             {
-                SMD_EN(i, _mbs->regHoldingBuf[SMD_1_EN_ADDR + i*10]);
+                if(_mbs->regHoldingBuf[SMD_1_DR_ADDR + i*10] != SMD_DR_READ(i))
+                {
+                    smd_freq_gradient[i].dir_change = 1;
+                    smd_freq_gradient[i].dir_state  = SMD_DIR_NORMAL;
+                }
             }
-            
-            /* --- 方向控制（S曲线换向） --- */
-            if(_mbs->regHoldingBuf[SMD_1_DR_ADDR + i*10] != SMD_DR_READ(i))
-            {
-                /*
-                 * 不直接写GPIO，而是设置换向标志。
-                 * TIM10中断检测到 dir_change=1 后，会：
-                 *   1. 将 v_n 临时置0，减速
-                 *   2. v_c 到0时翻转 DR 引脚
-                 *   3. 恢复 v_n = SMD_PU_DATA[i]，继续加速
-                 *
-                 * 注意：寄存器镜像先写入，GPIO切换由中断完成。
-                 */
-                smd_freq_gradient[i].dir_change = 1;
-                smd_freq_gradient[i].dir_state  = SMD_DIR_NORMAL; // 由中断推进状态
-                /* 同步寄存器镜像（GPIO实际切换在中断完成后才生效，
-                   此处仅记录"期望方向"，SMD_DR_READ在切换前后会有短暂不一致，属正常） */
-            }
-			/* --- JRK写入：用户自定义jerk（偏移5）---
-             * 写入范围 SMD_JERK_MIN ~ SMD_JERK_MAX，超出则限幅。
-             * 写 0 视为无效，自动恢复 SMD_JERK_DEFAULT。
-             * 新值在下一个 1ms 中断迭代时立即生效，无需重启渐变。
-             */
+
+            /* --- JRK写入（偏移3）：所有模式下均可更新 --- */
             if(_mbs->regHoldingBuf[SMD_1_JRK_ADDR + i*10] != SMD_JERK_DATA[i])
             {
                 uint32_t jrk_val = (uint32_t)_mbs->regHoldingBuf[SMD_1_JRK_ADDR + i*10];
@@ -156,65 +120,68 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 SMD_JERK_DATA[i] = jrk_val;
                 _mbs->regHoldingBuf[SMD_1_JRK_ADDR + i*10] = (uint16_t)(jrk_val > 65535u ? 65535u : jrk_val);
             }
-			/* --- ACC_MAX写入：用户自定义acc_max（偏移4）---
-             * 写入范围 SMD_ACC_MAX_MIN ~ SMD_ACC_MAX_MAX，超出则限幅。
-             */
-			if(_mbs->regHoldingBuf[SMD_1_ACC_ADDR + i*10] != SMD_ACC_DATA[i])
-			{
+
+            /* --- ACC_MAX写入（偏移2）：所有模式下均可更新 --- */
+            if(_mbs->regHoldingBuf[SMD_1_ACC_ADDR + i*10] != SMD_ACC_DATA[i])
+            {
                 uint16_t acc_val = _mbs->regHoldingBuf[SMD_1_ACC_ADDR + i*10];
                 if(acc_val < SMD_ACC_MAX_MIN) acc_val = SMD_ACC_MAX_MIN;
                 if(acc_val > SMD_ACC_MAX_MAX) acc_val = (uint16_t)SMD_ACC_MAX_MAX;
                 SMD_ACC_DATA[i] = acc_val;
                 _mbs->regHoldingBuf[SMD_1_ACC_ADDR + i*10] = acc_val;
-			}
-            /* --- 目标频率或加速度最大值变化：重新启动S曲线 ---
-             * 写入时做范围限幅，超出则钳位到边界值。
-             */
-            if(_mbs->regHoldingBuf[SMD_1_PU_ADDR  + i*10] != SMD_PU_DATA[i])
+            }
+
+            /* --- STEP写入（偏移4）：进入步数控制模式 ---
+             * 在 PU（偏移5）之前处理：多寄存器连续写入时先触发步数模式，
+             * 后续 PU 写入自动走「仅更新最大频率」分支。 */
+            if(_reg == (SMD_1_STEP_ADDR + i*10))
             {
-            	uint16_t pu_freq = _mbs->regHoldingBuf[SMD_1_PU_ADDR + i*10];
-				if(pu_freq < SMD_PWM_FREQ_MIN) pu_freq = SMD_PWM_FREQ_MIN;
+                uint16_t target_steps = _mbs->regHoldingBuf[SMD_1_STEP_ADDR + i*10];
+                g_motorStepsCtl[i].targetSteps = target_steps;
+                g_motorStepsCtl[i].is_running  = 1;
+                g_motorStepsCtl[i].braking     = 0;
+            }
+
+            /* --- PU写入（偏移5）：步数模式仅更新最大频率，非步数模式启动S曲线 ---
+             * STEP 在 PU 之前处理，故此处 g_motorStepsCtl[i].is_running 已正确反映
+             * 当前是否处于步数模式，无需额外 _reg 匹配。 */
+            if(_mbs->regHoldingBuf[SMD_1_PU_ADDR + i*10] != SMD_PU_DATA[i])
+            {
+                uint16_t pu_freq = _mbs->regHoldingBuf[SMD_1_PU_ADDR + i*10];
+                if(pu_freq < SMD_PWM_FREQ_MIN) pu_freq = SMD_PWM_FREQ_MIN;
                 if(pu_freq > SMD_PWM_FREQ_MAX) pu_freq = (uint16_t)SMD_PWM_FREQ_MAX;
                 SMD_PU_DATA[i]  = pu_freq;
-				_mbs->regHoldingBuf[SMD_1_PU_ADDR + i*10] = pu_freq;
-                SMD_PWM_SetFreqGradient((SMD_Channel)i, SMD_PU_DATA[i], SMD_ACC_DATA[i]);
+                _mbs->regHoldingBuf[SMD_1_PU_ADDR + i*10] = pu_freq;
+
+                if (!g_motorStepsCtl[i].is_running)
+                {
+                    /* 非步数模式：启动S曲线渐变 */
+                    SMD_PWM_SetFreqGradient((SMD_Channel)i, SMD_PU_DATA[i], SMD_ACC_DATA[i]);
+                }
+                /* 步数模式：仅更新 SMD_PU_DATA[i]，SMD_MotorStepsCtl 在下个中断取用 */
             }
-            /* --- SP写入：直接跳变 / 急停（偏移6）---
-             *
-             *  写 SP = 0   → 急停：立即 SMD_PWM_Stop()，清除速度和加速度状态，
-             *                is_running 置 0，TIM10 中断不再驱动该通道。
-             *                PU 寄存器保留原值，下次恢复只需重新写 PU 即可重启渐变，
-             *                无需额外操作。
-             *
-             *  写 SP = N>0 → 直接跳变：绕过S曲线，硬件立即切换到 N Hz，
-             *                同时清零 a_c（消除跳变前残留加速度），
-             *                v_c 同步更新为 N，后续 PU 渐变以此为起点。
-             *                N 超出范围自动限幅。
-             *
-             *  SP 是"一次性命令寄存器"：执行后下次 updata 上报的值回到实际
-             *  current_freq_int，主机不应持续重复写同一值。
-             */
+
+            /* --- SP写入（偏移6）：直接跳变 / 急停 --- */
             if(_reg == (SMD_1_SP_ADDR + i*10))
             {
                 uint16_t sp_cmd = _mbs->regHoldingBuf[SMD_1_SP_ADDR + i*10];
 
                 if(sp_cmd == 0)
                 {
-                    /* 急停：硬件停止，清除运动状态，保留PU目标值 */
-                    
-                     
-                        SMD_PWM_Stop((SMD_Channel)i);
-                        SMD_PU_DATA[i] = 1u;
-                        smd_freq_gradient[i].v_c              = 0.0f;
-                        smd_freq_gradient[i].v_n              = 0.0f;
-                        smd_freq_gradient[i].a_c              = 0.0f;
-                        smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
-                        smd_freq_gradient[i].is_running       = 0;
-                     
+                    /* 急停：硬件停止，清除运动状态 */
+                    SMD_PWM_Stop((SMD_Channel)i);
+                    SMD_PU_DATA[i] = SMD_PWM_FREQ_MIN;
+                    smd_freq_gradient[i].v_c              = 0.0f;
+                    smd_freq_gradient[i].v_n              = 0.0f;
+                    smd_freq_gradient[i].a_c              = 0.0f;
+                    smd_freq_gradient[i].current_freq_int = SMD_PWM_FREQ_MIN;
+                    smd_freq_gradient[i].is_running       = 0;
+                    g_motorStepsCtl[i].is_running         = 0;
+                    g_motorStepsCtl[i].braking            = 0;
                 }
                 else if (sp_cmd > 1)
                 {
-                    /* 直接跳变到指定频率（限幅），不经过S曲线加减速 */
+                    /* 直接跳变到指定频率（限幅），不经过S曲线 */
                     uint16_t target = sp_cmd;
                     if (target < (uint16_t)SMD_PWM_FREQ_MIN) target = (uint16_t)SMD_PWM_FREQ_MIN;
                     if (target > (uint16_t)SMD_PWM_FREQ_MAX) target = (uint16_t)SMD_PWM_FREQ_MAX;
@@ -224,25 +191,26 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                     smd_freq_gradient[i].a_c  = 0.0f;
                     smd_freq_gradient[i].is_running = 0;
                     SMD_PU_DATA[i] = target;
+                    g_motorStepsCtl[i].is_running = 0;
+                    g_motorStepsCtl[i].braking = 0;
                 }
             }
-            /* ---写入全部急停寄存器,电机全部停止---
-             *
-             */
+
+            /* --- 全部急停寄存器 --- */
             if(_reg == STOP_ALL_MOTOR_ADDR)
             {
                 uint16_t s_cmd = _mbs->regHoldingBuf[STOP_ALL_MOTOR_ADDR];
                 if(s_cmd == 1)
                 {
-                    
-                     
-                        SMD_PWM_Stop((SMD_Channel)i);
-                        SMD_PU_DATA[i] = 1u;
-                        smd_freq_gradient[i].v_c              = 0.0f;
-                        smd_freq_gradient[i].v_n              = 0.0f;
-                        smd_freq_gradient[i].a_c              = 0.0f;
-                        smd_freq_gradient[i].current_freq_int = 1u; // 最小有效值，防止除零
-                        smd_freq_gradient[i].is_running       = 0;
+                    SMD_PWM_Stop((SMD_Channel)i);
+                    SMD_PU_DATA[i] = SMD_PWM_FREQ_MIN;
+                    smd_freq_gradient[i].v_c              = 0.0f;
+                    smd_freq_gradient[i].v_n              = 0.0f;
+                    smd_freq_gradient[i].a_c              = 0.0f;
+                    smd_freq_gradient[i].current_freq_int = SMD_PWM_FREQ_MIN;
+                    smd_freq_gradient[i].is_running       = 0;
+                    g_motorStepsCtl[i].is_running         = 0;
+                    g_motorStepsCtl[i].braking            = 0;
                 }
             }
         }
@@ -258,7 +226,7 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 OUT(i, _mbs->regHoldingBuf[OUT_1_ADDR + i]);
             }
         }
-        
+
         /* --- 编码器清零（转发给STM从机） --- */
         for(i = 0; i < 5; i++)
         {
@@ -267,7 +235,7 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
                 mbsSTM.regHoldingBuf[i + 11] = _mbs->regHoldingBuf[EC_CLEAR_1_ADDR + i];
             }
         }
-        
+
     }
     else if(_mbs == &mbsSTM)
     {
