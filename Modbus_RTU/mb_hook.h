@@ -129,8 +129,10 @@
 #define OUT_15_ADDR                94       // 输出信号
 #define OUT_16_ADDR                95       // 输出信号
 
-#define RELAY_MOTOR_1 14
-#define RELAY_MOTOR_2 15
+#define RELAY_MOTOR_1 12
+#define RELAY_MOTOR_2 13
+#define RELAY_MOTOR_1_a 14
+#define RELAY_MOTOR_2_a 15
 
 #define EC_CLEAR_1_ADDR            96       // 编码器清零
 #define EC_CLEAR_2_ADDR            97       // 编码器清零

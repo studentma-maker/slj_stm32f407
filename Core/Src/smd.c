@@ -1024,10 +1024,16 @@ static void SMD_CheckRelayMotorLimit(void)
     {
         OUT(RELAY_MOTOR_1, 0);
         OUT(RELAY_MOTOR_2, 0);
+        OUT(RELAY_MOTOR_1_a, 0);
+        OUT(RELAY_MOTOR_2_a, 0);
         mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1] = 0;
         mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2] = 0;
         mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1] = 0;
         mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2] = 0;
+        mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1_a] = 0;
+        mbsUSB.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2_a] = 0;
+        mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_1_a] = 0;
+        mbsESP.regHoldingBuf[OUT_BASE_ADDR + RELAY_MOTOR_2_a] = 0;
     }
 }
 

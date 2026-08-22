@@ -221,6 +221,10 @@ void mbs_hook_extract_holding(mbs *_mbs, uint16_t _reg, uint16_t _val)
 			{
 				OUT(i + 1, _mbs->regHoldingBuf[OUT_1_ADDR + i + 1]);
 			}
+			if(i == RELAY_MOTOR_1_a && _mbs->regHoldingBuf[OUT_1_ADDR + i] == 1)
+			{
+				OUT(i + 1, _mbs->regHoldingBuf[OUT_1_ADDR + i + 1]);
+			}
             if(_mbs->regHoldingBuf[OUT_1_ADDR + i] != OUT_READ(i))
             {
                 OUT(i, _mbs->regHoldingBuf[OUT_1_ADDR + i]);
